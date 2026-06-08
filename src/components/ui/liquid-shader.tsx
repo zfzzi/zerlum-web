@@ -2,9 +2,12 @@ import { useEffect, useRef } from "react";
 import * as THREE from "three";
 
 export interface InteractiveNebulaShaderProps {
+  animated?: boolean;
   hasActiveReminders?: boolean;
   hasUpcomingReminders?: boolean;
   disableCenterDimming?: boolean;
+  maxPixelRatio?: number;
+  targetFps?: number;
   className?: string;
 }
 
@@ -13,9 +16,12 @@ export interface InteractiveNebulaShaderProps {
  * Props drive GLSL uniforms only; screen content lives in parent components.
  */
 export function InteractiveNebulaShader({
+  animated = true,
   hasActiveReminders = false,
   hasUpcomingReminders = false,
   disableCenterDimming = false,
+  maxPixelRatio = 1.25,
+  targetFps = 28,
   className = ""
 }: InteractiveNebulaShaderProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -39,8 +45,16 @@ export function InteractiveNebulaShader({
     }
 
     const host = container;
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    const prefersReducedMotion = window.matchMedia(
+      "(prefers-reduced-motion: reduce)"
+    ).matches;
+    const shouldAnimate = animated && !prefersReducedMotion;
+    const renderer = new THREE.WebGLRenderer({
+      antialias: false,
+      alpha: false,
+      powerPreference: "low-power"
+    });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, maxPixelRatio));
     host.appendChild(renderer.domElement);
 
     const scene = new THREE.Scene();
@@ -152,22 +166,32 @@ export function InteractiveNebulaShader({
       uniforms.iResolution.value.set(width, height);
     }
 
-    function handleMouseMove(event: MouseEvent) {
-      uniforms.iMouse.value.set(event.clientX, window.innerHeight - event.clientY);
-    }
-
     window.addEventListener("resize", resize);
-    window.addEventListener("mousemove", handleMouseMove);
     resize();
 
-    renderer.setAnimationLoop(() => {
-      uniforms.iTime.value = clock.getElapsedTime();
+    function renderFrame(staticTime?: number) {
+      uniforms.iTime.value = staticTime ?? clock.getElapsedTime();
       renderer.render(scene, camera);
-    });
+    }
+
+    if (shouldAnimate) {
+      const frameInterval = 1000 / Math.max(12, targetFps);
+      let lastFrame = 0;
+
+      renderer.setAnimationLoop((timestamp) => {
+        if (timestamp - lastFrame < frameInterval) {
+          return;
+        }
+
+        lastFrame = timestamp;
+        renderFrame();
+      });
+    } else {
+      requestAnimationFrame(() => renderFrame(6.2));
+    }
 
     return () => {
       window.removeEventListener("resize", resize);
-      window.removeEventListener("mousemove", handleMouseMove);
       renderer.setAnimationLoop(null);
       host.removeChild(renderer.domElement);
       material.dispose();
@@ -175,7 +199,7 @@ export function InteractiveNebulaShader({
       renderer.dispose();
       materialRef.current = null;
     };
-  }, []);
+  }, [animated, maxPixelRatio, targetFps]);
 
   return (
     <div

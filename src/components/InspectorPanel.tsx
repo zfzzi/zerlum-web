@@ -1,10 +1,11 @@
 import {
   FileStack,
-  Loader2,
+  Sparkles,
   Send,
   SquareStack
 } from "lucide-react";
-import type { ExportRequest } from "../types/nightRender";
+import type { ExportRequest, GenerationHistoryItem } from "../types/nightRender";
+import { HistoryPanel } from "./HistoryPanel";
 
 const outputSizes: ExportRequest["type"][] = [
   "2K",
@@ -22,24 +23,30 @@ interface InspectorPanelProps {
   apiStatus: ApiStatus;
   canExport: boolean;
   canGenerate: boolean;
+  history: GenerationHistoryItem[];
   outputSize: ExportRequest["type"];
   prompt: string;
+  renderEngine: "image2" | "banana";
   onExport: () => void;
   onGenerate: () => void;
   onOutputSizeChange: (size: ExportRequest["type"]) => void;
   onPromptChange: (prompt: string) => void;
+  onRenderEngineChange: (engine: "image2" | "banana") => void;
 }
 
 export function InspectorPanel({
   apiStatus,
   canExport,
   canGenerate,
+  history,
   outputSize,
   prompt,
+  renderEngine,
   onExport,
   onGenerate,
   onOutputSizeChange,
-  onPromptChange
+  onPromptChange,
+  onRenderEngineChange
 }: InspectorPanelProps) {
   const isLoading = apiStatus.state === "loading";
 
@@ -51,6 +58,29 @@ export function InspectorPanel({
           <p>提示词、分辨率编辑</p>
         </div>
       </div>
+
+      <section className="control-section output-section">
+        <div className="section-title with-icon">
+          <Sparkles size={14} aria-hidden="true" />
+          出图模型
+        </div>
+        <div className="render-engine-grid" role="group" aria-label="选择出图模型">
+          {[
+            { id: "image2" as const, label: "image2" },
+            { id: "banana" as const, label: "banana" }
+          ].map((engine) => (
+            <button
+              className={engine.id === renderEngine ? "export-button is-active" : "export-button"}
+              key={engine.id}
+              type="button"
+              onClick={() => onRenderEngineChange(engine.id)}
+            >
+              <Sparkles size={14} aria-hidden="true" />
+              {engine.label}
+            </button>
+          ))}
+        </div>
+      </section>
 
       <section className="control-section output-section">
         <div className="section-title with-icon">
@@ -83,14 +113,14 @@ export function InspectorPanel({
         />
         <div className="prompt-actions">
           <button
-            className="primary-button"
+            className="primary-button generate-button"
             disabled={!canGenerate || isLoading}
             onClick={onGenerate}
             type="button"
             title={canGenerate ? "生成夜景方案" : "请先上传主图"}
           >
-            {isLoading ? <Loader2 className="spin" size={15} /> : <Send size={15} />}
-            生成夜景
+            <Send size={15} aria-hidden="true" />
+            {isLoading ? "生成中" : "生成夜景"}
           </button>
         </div>
       </section>
@@ -107,6 +137,8 @@ export function InspectorPanel({
           导出当前图
         </button>
       </section>
+
+      <HistoryPanel history={history} />
     </aside>
   );
 }

@@ -113,6 +113,13 @@ const canvasToolPrompts: Record<CanvasTool, string> = {
   禁止修改: "禁止修改区域必须保持原图内容不变，不替换材质、不移动元素、不改变形体。"
 };
 
+const fixtureColorLegend = Object.entries(fixtureColorMap)
+  .map(([fixture, color]) => `${fixture}=${color}`)
+  .join("，");
+
+const colorTemperatureRule =
+  "色温规则：标注颜色仅用于区分灯具类型和标注位置，不代表灯光颜色或色温；除非用户提示词明确写出色温数值，否则所有灯具默认使用 3000K 暖白光。";
+
 const areaKindPrompts: Record<"repaint" | "mask" | "avoid", string> = {
   repaint: "局部重绘",
   mask: "遮罩选择",
@@ -335,15 +342,17 @@ function buildFixtureAnnotationInstruction(annotations: ApiFixtureAnnotation[]) 
     return "未添加灯具标注时，请根据建筑立面和场景参考生成克制、专业的夜景照明，不自行增加过多灯具。";
   }
 
-  return fixtureAnnotations
-    .map((annotation) => {
-      const position =
-        annotation.type === "area"
-          ? JSON.stringify(annotation.normalizedCoordinates)
-          : JSON.stringify(annotation.coordinates);
-      return `${annotation.fixtureType} 使用 ${annotation.color} 颜色标注，标注类型为 ${annotation.type}，位置为 ${position}。请把该位置和种类转换成真实可见的建筑灯光效果，而不是保留标注线本身`;
-    })
-    .join("；");
+  const fixtureTypes = Array.from(
+    new Set(fixtureAnnotations.map((annotation) => annotation.fixtureType || "灯具"))
+  );
+
+  return [
+    `灯具类型包含：${fixtureTypes.join("、")}。`,
+    "灯具位置已经通过输入主图中的暖白灯光预演效果体现，请严格按预演光的位置、范围和方向生成真实建筑照明。",
+    "不要在画面中绘制任何坐标数字、标注编号、引线、文字标签、箭头、框线或色点。",
+    "标注识别色只用于系统区分灯具类型，不代表灯光颜色或色温。",
+    "灯光表现要克制、专业、贴合建筑表皮，避免舞台探照灯、粗大光柱和过曝光束；未标注位置不要自行增加强投光。"
+  ].join("");
 }
 
 function buildEditAnnotationInstruction(annotations: ApiFixtureAnnotation[]) {
@@ -392,12 +401,18 @@ export function buildFinalPrompt(payload: Omit<NightRenderApiPayload, "finalProm
     `场景类型：${payload.sceneType}。`,
     `风格模板：${payload.template}。`,
     `用户提示词：${payload.prompt || "无"}。`,
+    "生成接口会以包含暖白灯光预演的主图作为位置引导；灯具标注只转换为灯具类型、范围和方向说明，不向模型输出坐标数字。",
+    `灯具标注颜色图例（仅用于识别灯具类型，不代表灯光颜色或色温）：${fixtureColorLegend}。`,
+    colorTemperatureRule,
     `功能按钮规则：${buildToolInstruction(payload.tools.active)}。`,
     `灯具标注要求：${buildFixtureAnnotationInstruction(payload.annotations)}。`,
     `局部编辑标注要求：${buildEditAnnotationInstruction(payload.annotations)}。`,
     `输出分辨率：${payload.output.resolution}，目标尺寸 ${payload.output.size}。`,
     `硬性保持约束：${payload.preserveConstraints.join("、")}。`,
     `负面约束：${payload.negativePrompts.join("、")}。`,
+    "如果输入主图已经包含暖白灯光预演效果，请把它理解为灯具位置引导图：保留建筑结构并把预演光效自然化、真实化，不要把它当成标注、文字或装饰元素。",
+    "根据灯具预演光位置和灯具种类形成对应灯光效果。标注只作为灯位和灯具类型参考，最终图中绝对不要出现坐标数字、标注编号、引线、文字标签、彩色标注线、箭头、框线、色点或任何UI痕迹。",
+    "强投光、线性光带、点光源和灯箱光效必须优先贴合预演光位置；光束要柔和克制，禁止舞台探照灯效果、粗大体积光柱和局部过曝；未标注位置只允许生成基础环境光、内透光和必要的弱补光。",
     "绝对不能改变原图建筑结构、视角、树木、地砖、人物和透视关系。只调整夜景光环境、灯具光效、室内透光和整体氛围。"
   ].join("\n");
 }

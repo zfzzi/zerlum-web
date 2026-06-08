@@ -1,17 +1,15 @@
 import {
+  Check,
   FileImage,
   ImagePlus,
   Layers2,
   Map,
-  Maximize2,
   Palette,
-  Trash2,
-  X
+  Trash2
 } from "lucide-react";
 import { useState } from "react";
 import { styleReferences } from "../data";
 import type {
-  GenerationHistoryItem,
   ReferenceImage,
   ReferenceImageRole,
   StyleReference
@@ -26,7 +24,6 @@ const roleIcons: Record<ReferenceImageRole, typeof FileImage> = {
 };
 
 interface LeftPanelProps {
-  history: GenerationHistoryItem[];
   references: ReferenceImage[];
   selectedStyleId: string;
   onRemoveUpload: (id: string) => void;
@@ -35,7 +32,6 @@ interface LeftPanelProps {
 }
 
 export function LeftPanel({
-  history,
   references,
   selectedStyleId,
   onRemoveUpload,
@@ -43,8 +39,8 @@ export function LeftPanel({
   onUpload
 }: LeftPanelProps) {
   const [dropTargetId, setDropTargetId] = useState<string>();
-  const [expandedHistoryItem, setExpandedHistoryItem] =
-    useState<GenerationHistoryItem | null>(null);
+  const primaryReferences = references.filter((reference) => reference.role === "primary");
+  const visualReferences = references.filter((reference) => reference.role !== "primary");
 
   return (
     <aside className="panel left-panel" aria-label="项目与素材">
@@ -56,7 +52,7 @@ export function LeftPanel({
       </div>
 
       <div className="upload-list">
-        {references.map((reference) => {
+        {primaryReferences.map((reference) => {
           const Icon = roleIcons[reference.role];
           const previewUrl = reference.previewUrl ?? "";
 
@@ -99,11 +95,8 @@ export function LeftPanel({
                 <strong>{reference.label}</strong>
                 <span>{reference.fileName ?? reference.hint}</span>
               </label>
-              <div className="upload-actions">
-                <label className="upload-action" htmlFor={`upload-${reference.id}`}>
-                  {reference.status === "ready" ? "替换" : "上传"}
-                </label>
-                {reference.status === "ready" ? (
+              {reference.status === "ready" ? (
+                <div className="upload-actions">
                   <button
                     className="upload-remove-button"
                     type="button"
@@ -113,8 +106,8 @@ export function LeftPanel({
                   >
                     <Trash2 size={13} aria-hidden="true" />
                   </button>
-                ) : null}
-              </div>
+                </div>
+              ) : null}
               <input
                 id={`upload-${reference.id}`}
                 className="visually-hidden"
@@ -136,90 +129,121 @@ export function LeftPanel({
       <section className="style-reference-panel" aria-label="场景参考">
         <div className="section-title">场景参考</div>
         <div className="style-reference-grid">
-          {styleReferences.map((style) => (
-            <button
-              className={
-                style.id === selectedStyleId
-                  ? `style-reference-card scene-${style.tone} is-active`
-                  : `style-reference-card scene-${style.tone}`
-              }
-              key={style.id}
-              type="button"
-              onClick={() => onStyleSelect(style)}
-            >
-              <span className="style-thumb scene-thumb" aria-hidden="true">
-                {style.imageUrl ? (
-                  <img src={style.imageUrl} alt="" />
-                ) : (
-                  <>
-                    <span className="scene-sky" />
-                    <span className="scene-mass scene-mass-a" />
-                    <span className="scene-mass scene-mass-b" />
-                    <span className="scene-light scene-light-a" />
-                    <span className="scene-light scene-light-b" />
-                    <span className="scene-ground" />
-                  </>
-                )}
-              </span>
-              <span className="style-copy">
-                <strong>{style.title}</strong>
-                <small>{style.subtitle}</small>
-              </span>
-            </button>
-          ))}
-        </div>
-      </section>
+          {styleReferences.map((style) => {
+            const isSelected = style.id === selectedStyleId;
 
-      <section className="history-panel" aria-label="生成历史记录">
-        <div className="section-title">生成历史</div>
-        {history.length > 0 ? (
-          <div className="history-grid">
-            {history.map((item) => (
+            return (
               <button
-                className="history-thumb"
-                key={item.id}
+                aria-pressed={isSelected}
+                className={
+                  isSelected
+                    ? `style-reference-card scene-${style.tone} is-active`
+                    : `style-reference-card scene-${style.tone}`
+                }
+                key={style.id}
                 type="button"
-                onClick={() => setExpandedHistoryItem(item)}
+                onClick={() => onStyleSelect(style)}
               >
-                <img src={item.imageUrl} alt={item.title} />
-                <span>
-                  <strong>{item.title}</strong>
-                  <small>{item.outputSize} · {item.createdAt}</small>
+                <span className="style-thumb scene-thumb" aria-hidden="true">
+                  {style.imageUrl ? (
+                    <img src={style.imageUrl} alt="" />
+                  ) : (
+                    <>
+                      <span className="scene-sky" />
+                      <span className="scene-mass scene-mass-a" />
+                      <span className="scene-mass scene-mass-b" />
+                      <span className="scene-light scene-light-a" />
+                      <span className="scene-light scene-light-b" />
+                      <span className="scene-ground" />
+                    </>
+                  )}
                 </span>
-                <Maximize2 size={13} aria-hidden="true" />
+                <span className="style-copy">
+                  <strong>{style.title}</strong>
+                  <small>{style.subtitle}</small>
+                </span>
+                {isSelected ? (
+                  <span className="style-selected-indicator">
+                    <Check size={12} aria-hidden="true" />
+                    已选
+                  </span>
+                ) : null}
               </button>
-            ))}
-          </div>
-        ) : (
-          <p className="history-empty">生成完成后会在这里显示缩略图。</p>
-        )}
+            );
+          })}
+        </div>
       </section>
 
-      {expandedHistoryItem ? (
-        <div
-          className="history-lightbox"
-          role="dialog"
-          aria-modal="true"
-          aria-label={expandedHistoryItem.title}
-          onClick={() => setExpandedHistoryItem(null)}
-        >
-          <div className="history-lightbox-card" onClick={(event) => event.stopPropagation()}>
-            <button
-              className="history-lightbox-close"
-              type="button"
-              aria-label="关闭预览"
-              onClick={() => setExpandedHistoryItem(null)}
-            >
-              <X size={16} aria-hidden="true" />
-            </button>
-            <img src={expandedHistoryItem.imageUrl} alt={expandedHistoryItem.title} />
-            <div>
-              <strong>{expandedHistoryItem.title}</strong>
-              <span>{expandedHistoryItem.outputSize} · {expandedHistoryItem.createdAt}</span>
-            </div>
-          </div>
+      <section className="reference-upload-panel" aria-label="添加参考图">
+        <div className="section-title">添加参考图</div>
+        <div className="reference-upload-grid">
+          {visualReferences.map((reference) => {
+            const previewUrl = reference.previewUrl ?? "";
+
+            return (
+              <div
+                className={
+                  dropTargetId === reference.id
+                    ? "reference-upload-card is-drop-target"
+                    : "reference-upload-card"
+                }
+                key={reference.id}
+                onDragEnter={(event) => {
+                  event.preventDefault();
+                  setDropTargetId(reference.id);
+                }}
+                onDragLeave={() => setDropTargetId(undefined)}
+                onDragOver={(event) => event.preventDefault()}
+                onDrop={(event) => {
+                  event.preventDefault();
+                  setDropTargetId(undefined);
+                  const file = event.dataTransfer.files?.[0];
+
+                  if (file?.type.startsWith("image/")) {
+                    onUpload(reference.id, file);
+                  }
+                }}
+              >
+                <label className="reference-upload-box" htmlFor={`upload-${reference.id}`}>
+                  {previewUrl ? (
+                    <img src={previewUrl} alt={reference.label} />
+                  ) : (
+                    <span>
+                      <ImagePlus size={24} aria-hidden="true" />
+                      <strong>{reference.label}</strong>
+                      <small>{reference.hint}</small>
+                    </span>
+                  )}
+                </label>
+                {reference.status === "ready" ? (
+                  <button
+                    className="reference-remove-button"
+                    type="button"
+                    aria-label={`删除${reference.label}`}
+                    title={`删除${reference.label}`}
+                    onClick={() => onRemoveUpload(reference.id)}
+                  >
+                    <Trash2 size={13} aria-hidden="true" />
+                  </button>
+                ) : null}
+                <input
+                  id={`upload-${reference.id}`}
+                  className="visually-hidden"
+                  type="file"
+                  accept="image/*"
+                  onChange={(event) => {
+                    const file = event.currentTarget.files?.[0];
+                    if (file) {
+                      onUpload(reference.id, file);
+                      event.currentTarget.value = "";
+                    }
+                  }}
+                />
+              </div>
+            );
+          })}
         </div>
-      ) : null}
+      </section>
     </aside>
   );
 }

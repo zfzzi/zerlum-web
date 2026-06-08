@@ -47,22 +47,22 @@ export const fixtureGroups = [
 ];
 
 export const fixtureColorMap: Record<string, string> = {
-  投光灯: "#60A5FA",
-  洗墙灯: "#22D3EE",
-  线性灯: "#FACC15",
-  地埋灯: "#34D399",
-  点光源: "#F87171",
-  像素灯: "#A78BFA",
-  轮廓灯: "#FB923C",
-  树灯: "#84CC16",
-  线性灯带: "#FDE047",
-  筒灯: "#FBBF24",
-  射灯: "#F59E0B",
-  磁吸轨道灯: "#38BDF8",
-  吊灯: "#E879F9",
-  暗藏灯槽: "#2DD4BF",
+  投光灯: "#4F8CFF",
+  洗墙灯: "#00D5FF",
+  线性灯: "#FFD000",
+  地埋灯: "#1DE985",
+  点光源: "#FF3B5C",
+  像素灯: "#A855F7",
+  轮廓灯: "#FF7A1A",
+  树灯: "#7DD321",
+  线性灯带: "#FFE45C",
+  筒灯: "#FFB020",
+  射灯: "#FF5E3A",
+  磁吸轨道灯: "#2F6BFF",
+  吊灯: "#FF4FD8",
+  暗藏灯槽: "#00C2A8",
   发光软膜: "#C084FC",
-  灯箱: "#F472B6"
+  灯箱: "#FF78B7"
 };
 
 export const negativePromptOptions = [
@@ -85,15 +85,43 @@ export const defaultReferences: ReferenceImage[] = [
     label: "主图上传",
     hint: "上传建筑、景观或室内照片",
     status: "missing"
+  },
+  {
+    id: "visual-reference",
+    role: "style",
+    label: "参考图",
+    hint: "上传灯光、氛围或材质参考",
+    status: "missing"
   }
 ];
 
+export const architecturalNightBasePrompt =
+  "夜景建筑效果图、蓝调、电影级光影、照片级、建筑摄影风格、月光、环境光、内透光、8K分辨率、光线追踪效果。";
+
+export const interiorLightingBasePrompt =
+  "室内照明效果图、采用全局光照、光线追踪技术，呈现超逼真、建筑文摘风格，8K分辨率。";
+
+export const landscapeNightBasePrompt =
+  "夜景景观效果图、蓝调、柔和的边缘亮光、能让光线产生呼吸感、电影级光影、照片级、建筑摄影风格、8K分辨率、光线追踪效果。";
+
 export const styleReferences: StyleReference[] = [
   {
+    id: "scene-facade",
+    title: "建筑夜景",
+    subtitle: "幕墙、入口、檐口轮廓",
+    description: "适合立面洗墙、线性轮廓、入口重点和窗口内透。",
+    basePrompt: architecturalNightBasePrompt,
+    imageUrl: "/scene-facade.png",
+    sceneType: "建筑立面夜景",
+    template: "城市商务质感",
+    tone: "facade"
+  },
+  {
     id: "scene-outdoor",
-    title: "室外夜景",
+    title: "景观夜景",
     subtitle: "广场、园区、滨水空间",
     description: "保留环境层次，强化天光、铺装反射和室外灯具秩序。",
+    basePrompt: landscapeNightBasePrompt,
     imageUrl: "/scene-outdoor.png",
     sceneType: "滨水空间",
     template: "高级蓝调夜景",
@@ -104,20 +132,11 @@ export const styleReferences: StyleReference[] = [
     title: "室内灯光",
     subtitle: "商场、酒店、办公空间",
     description: "强调内透、吊顶层次、暗藏灯槽和重点照明。",
+    basePrompt: interiorLightingBasePrompt,
     imageUrl: "/scene-indoor.png",
     sceneType: "商场室内",
     template: "内透灯光增强",
     tone: "indoor"
-  },
-  {
-    id: "scene-facade",
-    title: "建筑立面",
-    subtitle: "幕墙、入口、檐口轮廓",
-    description: "适合立面洗墙、线性轮廓、入口重点和窗口内透。",
-    imageUrl: "/scene-facade.png",
-    sceneType: "建筑立面夜景",
-    template: "城市商务质感",
-    tone: "facade"
   }
 ];
 

@@ -12,6 +12,9 @@ export interface UserProfile {
   username: string;
   email: string;
   phone: string;
+  passwordHash?: string;
+  passwordSalt?: string;
+  authProvider?: "password" | "微信" | "GitHub";
   plan: UserPlan;
   credits: number;
   totalRecharged: number;
@@ -25,11 +28,15 @@ export interface RegisterUserInput {
   username: string;
   email: string;
   phone: string;
+  password: string;
 }
 
 const USERS_STORAGE_KEY = "zerlum.registeredUsers";
 const CURRENT_USER_STORAGE_KEY = "zerlum.currentUserId";
+const CURRENT_SESSION_STORAGE_KEY = "zerlum.currentSession";
+const SESSION_USER_STORAGE_KEY = "zerlum.sessionUserId";
 const DEFAULT_TRIAL_CREDITS = 120;
+const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
 
 function isBrowser() {
   return typeof window !== "undefined" && typeof window.localStorage !== "undefined";
@@ -42,6 +49,47 @@ function createId(prefix: string) {
       : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
   return `${prefix}_${randomId}`;
+}
+
+function createSalt() {
+  const bytes = new Uint8Array(16);
+
+  if (typeof crypto !== "undefined" && "getRandomValues" in crypto) {
+    crypto.getRandomValues(bytes);
+    return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+  }
+
+  return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function fallbackHash(value: string) {
+  let hash = 2166136261;
+
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+
+  return (hash >>> 0).toString(16).padStart(8, "0");
+}
+
+async function hashPassword(password: string, salt: string) {
+  const value = `${salt}:${password}`;
+
+  if (
+    typeof crypto !== "undefined" &&
+    crypto.subtle &&
+    typeof TextEncoder !== "undefined"
+  ) {
+    const encoded = new TextEncoder().encode(value);
+    const digest = await crypto.subtle.digest("SHA-256", encoded);
+
+    return Array.from(new Uint8Array(digest), (byte) =>
+      byte.toString(16).padStart(2, "0")
+    ).join("");
+  }
+
+  return fallbackHash(value);
 }
 
 function normalizeIdentity(value: string) {
@@ -88,27 +136,45 @@ function writeUsers(users: UserProfile[]) {
   window.localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(users));
 }
 
-function saveCurrentUserId(userId: string) {
+function saveCurrentUserId(userId: string, rememberFor30Days = true) {
   if (!isBrowser()) {
     return;
   }
 
-  window.localStorage.setItem(CURRENT_USER_STORAGE_KEY, userId);
+  if (rememberFor30Days) {
+    window.localStorage.setItem(
+      CURRENT_SESSION_STORAGE_KEY,
+      JSON.stringify({
+        userId,
+        expiresAt: Date.now() + THIRTY_DAYS_MS
+      })
+    );
+    window.localStorage.setItem(CURRENT_USER_STORAGE_KEY, userId);
+    window.sessionStorage.removeItem(SESSION_USER_STORAGE_KEY);
+    return;
+  }
+
+  window.sessionStorage.setItem(SESSION_USER_STORAGE_KEY, userId);
+  window.localStorage.removeItem(CURRENT_SESSION_STORAGE_KEY);
+  window.localStorage.removeItem(CURRENT_USER_STORAGE_KEY);
 }
 
-function upsertUser(profile: UserProfile) {
+function upsertUser(profile: UserProfile, rememberFor30Days = true) {
   const users = readUsers();
   const nextUsers = users.some((user) => user.id === profile.id)
     ? users.map((user) => (user.id === profile.id ? profile : user))
     : [profile, ...users];
 
   writeUsers(nextUsers);
-  saveCurrentUserId(profile.id);
+  saveCurrentUserId(profile.id, rememberFor30Days);
 
   return profile;
 }
 
-function buildDemoUser(identifier: string): UserProfile {
+function buildDemoUser(
+  identifier: string,
+  authProvider: UserProfile["authProvider"] = "password"
+): UserProfile {
   const now = new Date().toISOString();
   const isEmail = identifier.includes("@");
   const cleanIdentifier = identifier.trim();
@@ -123,6 +189,7 @@ function buildDemoUser(identifier: string): UserProfile {
     username,
     email,
     phone,
+    authProvider,
     plan: "试用版",
     credits: DEFAULT_TRIAL_CREDITS,
     totalRecharged: 0,
@@ -131,6 +198,60 @@ function buildDemoUser(identifier: string): UserProfile {
     avatarInitial: getAvatarInitial(username, email, phone),
     rechargeRecords: []
   };
+}
+
+function isPasswordCapableUser(user: UserProfile) {
+  return Boolean(user.passwordHash && user.passwordSalt);
+}
+
+function findUserByIdentifier(users: UserProfile[], identifier: string) {
+  const normalizedIdentifier = normalizeIdentity(identifier);
+
+  return users.find(
+    (user) =>
+      normalizeIdentity(user.email) === normalizedIdentifier ||
+      normalizeIdentity(user.phone) === normalizedIdentifier
+  );
+}
+
+function readSessionUserId() {
+  if (!isBrowser()) {
+    return "";
+  }
+
+  try {
+    const rawSession = window.localStorage.getItem(CURRENT_SESSION_STORAGE_KEY);
+
+    if (rawSession) {
+      const session = JSON.parse(rawSession);
+
+      if (
+        typeof session?.userId === "string" &&
+        typeof session?.expiresAt === "number" &&
+        session.expiresAt > Date.now()
+      ) {
+        return session.userId;
+      }
+
+      window.localStorage.removeItem(CURRENT_SESSION_STORAGE_KEY);
+      window.localStorage.removeItem(CURRENT_USER_STORAGE_KEY);
+    }
+  } catch {
+    window.localStorage.removeItem(CURRENT_SESSION_STORAGE_KEY);
+  }
+
+  const sessionUserId = window.sessionStorage.getItem(SESSION_USER_STORAGE_KEY);
+  if (sessionUserId) {
+    return sessionUserId;
+  }
+
+  const legacyUserId = window.localStorage.getItem(CURRENT_USER_STORAGE_KEY);
+  if (legacyUserId) {
+    saveCurrentUserId(legacyUserId, true);
+    return legacyUserId;
+  }
+
+  return "";
 }
 
 export function getRegisteredUsers() {
@@ -142,74 +263,140 @@ export function loadCurrentUser(): UserProfile | null {
     return null;
   }
 
-  const currentUserId = window.localStorage.getItem(CURRENT_USER_STORAGE_KEY);
+  const currentUserId = readSessionUserId();
   if (!currentUserId) {
     return null;
   }
 
-  return readUsers().find((user) => user.id === currentUserId) ?? null;
+  const user = readUsers().find((item) => item.id === currentUserId) ?? null;
+
+  if (user && (isPasswordCapableUser(user) || user.authProvider)) {
+    return user;
+  }
+
+  clearCurrentUser();
+  return null;
 }
 
-export function createRegisteredUser(input: RegisterUserInput): UserProfile {
+export async function createRegisteredUser(
+  input: RegisterUserInput,
+  rememberFor30Days = true
+): Promise<UserProfile> {
   const users = readUsers();
   const cleanEmail = input.email.trim();
   const cleanPhone = input.phone.trim();
   const now = new Date().toISOString();
-  const existingUser = users.find(
-    (user) =>
-      normalizeIdentity(user.email) === normalizeIdentity(cleanEmail) ||
-      normalizeIdentity(user.phone) === normalizeIdentity(cleanPhone)
-  );
+  const existingUser = users.find((user) => {
+    const sameEmail =
+      cleanEmail && normalizeIdentity(user.email) === normalizeIdentity(cleanEmail);
+    const samePhone =
+      cleanPhone && normalizeIdentity(user.phone) === normalizeIdentity(cleanPhone);
+
+    return sameEmail || samePhone;
+  });
+  const passwordSalt = createSalt();
+  const passwordHash = await hashPassword(input.password, passwordSalt);
+
+  if (existingUser && isPasswordCapableUser(existingUser)) {
+    throw new Error("该邮箱或手机号已注册，请直接登录。");
+  }
 
   if (existingUser) {
-    return upsertUser({
+    return upsertUser(
+      {
       ...existingUser,
       username: input.username.trim() || existingUser.username,
       email: cleanEmail || existingUser.email,
       phone: cleanPhone || existingUser.phone,
+      passwordHash,
+      passwordSalt,
+      authProvider: "password",
       lastLoginAt: now,
       avatarInitial: getAvatarInitial(
         input.username.trim() || existingUser.username,
         cleanEmail || existingUser.email,
         cleanPhone || existingUser.phone
       )
-    });
+      },
+      rememberFor30Days
+    );
   }
 
-  return upsertUser({
-    id: createId("user"),
-    username: input.username.trim(),
-    email: cleanEmail,
-    phone: cleanPhone,
-    plan: "试用版",
-    credits: DEFAULT_TRIAL_CREDITS,
-    totalRecharged: 0,
-    createdAt: now,
-    lastLoginAt: now,
-    avatarInitial: getAvatarInitial(input.username, cleanEmail, cleanPhone),
-    rechargeRecords: []
-  });
+  return upsertUser(
+    {
+      id: createId("user"),
+      username: input.username.trim(),
+      email: cleanEmail,
+      phone: cleanPhone,
+      passwordHash,
+      passwordSalt,
+      authProvider: "password",
+      plan: "试用版",
+      credits: DEFAULT_TRIAL_CREDITS,
+      totalRecharged: 0,
+      createdAt: now,
+      lastLoginAt: now,
+      avatarInitial: getAvatarInitial(input.username, cleanEmail, cleanPhone),
+      rechargeRecords: []
+    },
+    rememberFor30Days
+  );
 }
 
-export function resolveLoginUser(identifier: string): UserProfile {
+export async function resolveLoginUser(
+  identifier: string,
+  password: string,
+  rememberFor30Days = true
+): Promise<UserProfile> {
   const cleanIdentifier = identifier.trim();
-  const normalizedIdentifier = normalizeIdentity(cleanIdentifier);
   const users = readUsers();
   const now = new Date().toISOString();
-  const existingUser = users.find(
-    (user) =>
-      normalizeIdentity(user.email) === normalizedIdentifier ||
-      normalizeIdentity(user.phone) === normalizedIdentifier
-  );
+  const existingUser = findUserByIdentifier(users, cleanIdentifier);
 
-  if (existingUser) {
-    return upsertUser({
-      ...existingUser,
-      lastLoginAt: now
-    });
+  if (!existingUser) {
+    throw new Error("账号不存在，请先注册。");
   }
 
-  return upsertUser(buildDemoUser(cleanIdentifier));
+  if (!isPasswordCapableUser(existingUser)) {
+    throw new Error("该账号还没有设置密码，请重新注册后再登录。");
+  }
+
+  const passwordHash = await hashPassword(password, existingUser.passwordSalt ?? "");
+
+  if (passwordHash !== existingUser.passwordHash) {
+    throw new Error("密码不正确，请输入注册时设置的密码。");
+  }
+
+  return upsertUser(
+    {
+      ...existingUser,
+      authProvider: "password",
+      lastLoginAt: now
+    },
+    rememberFor30Days
+  );
+}
+
+export function resolveThirdPartyUser(
+  provider: "微信" | "GitHub",
+  rememberFor30Days = true
+): UserProfile {
+  const identifier = provider === "微信" ? "wechat@zerlum.local" : "github@zerlum.local";
+  const users = readUsers();
+  const existingUser = findUserByIdentifier(users, identifier);
+
+  if (existingUser) {
+    return upsertUser(
+      {
+        ...existingUser,
+        authProvider: provider,
+        lastLoginAt: new Date().toISOString()
+      },
+      rememberFor30Days
+    );
+  }
+
+  return upsertUser(buildDemoUser(identifier, provider), rememberFor30Days);
 }
 
 export function addUserCredits(userId: string, amount: number): UserProfile | null {
@@ -259,4 +446,6 @@ export function clearCurrentUser() {
   }
 
   window.localStorage.removeItem(CURRENT_USER_STORAGE_KEY);
+  window.localStorage.removeItem(CURRENT_SESSION_STORAGE_KEY);
+  window.sessionStorage.removeItem(SESSION_USER_STORAGE_KEY);
 }

@@ -23,6 +23,7 @@ export interface StyleReference {
   title: string;
   subtitle: string;
   description: string;
+  basePrompt: string;
   imageUrl?: string;
   sceneType: SceneType;
   template: LightingMoodTemplate;
@@ -162,7 +163,14 @@ export interface CanvasAnnotation {
 
 export interface GenerationRequest {
   projectId: string;
+  renderEngine?: "image2" | "banana";
   sourceImage?: {
+    dataUrl: string;
+    fileName?: string;
+    mimeType?: string;
+    size?: number;
+  };
+  annotationReferenceImage?: {
     dataUrl: string;
     fileName?: string;
     mimeType?: string;
@@ -172,6 +180,13 @@ export interface GenerationRequest {
     role: ReferenceImageRole;
     fileName?: string;
     status: ReferenceStatus;
+  }>;
+  referenceImages?: Array<{
+    dataUrl: string;
+    fileName?: string;
+    mimeType?: string;
+    role: ReferenceImageRole;
+    label?: string;
   }>;
   sceneType: SceneType;
   template: LightingMoodTemplate;
@@ -208,6 +223,8 @@ export interface GenerationResponse {
   error?: string;
   provider?: "api" | "local-fallback";
   message?: string;
+  warning?: string;
+  upscaleApplied?: boolean;
 }
 
 export interface PromptOptimizationResponse {

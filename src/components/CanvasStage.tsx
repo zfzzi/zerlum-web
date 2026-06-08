@@ -1,6 +1,8 @@
 import {
   type CSSProperties,
+  type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent,
+  type SyntheticEvent,
   useEffect,
   useRef,
   useState
@@ -27,11 +29,11 @@ import type {
 interface CanvasStageProps {
   activeFixture: string;
   activeTool: CanvasTool;
-  compare: number;
+  generationMessage?: string;
+  isGenerating: boolean;
   resultImageUrl?: string;
   sourceImageUrl?: string;
   onCanvasContextChange: (context: CanvasGenerationContext) => void;
-  onCompareChange: (value: number) => void;
   onFixtureChange: (fixture: string) => void;
   onPrimaryImageUpload: (file: File) => void;
   onToolChange: (tool: CanvasTool) => void;
@@ -52,6 +54,7 @@ type AreaTool = Extract<CanvasTool, "局部重绘" | "遮罩选择" | "禁止修
 type AreaKind = "repaint" | "mask" | "avoid";
 type FixtureLineKind = "wash" | "linear";
 type FixtureMarkMode = "line" | "direction" | "point" | "area";
+type ResultViewMode = "generated" | "compare" | "source";
 
 type CanvasAnnotationItem = CanvasAnnotationSnapshot;
 
@@ -248,11 +251,11 @@ function moveAnnotation(
 export function CanvasStage({
   activeFixture,
   activeTool,
-  compare,
+  generationMessage,
+  isGenerating,
   resultImageUrl,
   sourceImageUrl,
   onCanvasContextChange,
-  onCompareChange,
   onFixtureChange,
   onPrimaryImageUpload,
   onToolChange
@@ -261,9 +264,13 @@ export function CanvasStage({
   const hasResult = Boolean(resultImageUrl);
   const emptyUploadInputRef = useRef<HTMLInputElement | null>(null);
   const imageFrameRef = useRef<HTMLDivElement | null>(null);
+  const viewportContentRef = useRef<HTMLDivElement | null>(null);
   const svgRef = useRef<SVGSVGElement | null>(null);
   const [annotationItems, setAnnotationItems] = useState<CanvasAnnotationItem[]>([]);
   const [selectedAnnotationId, setSelectedAnnotationId] = useState<string>();
+  const [isCompareDragging, setIsCompareDragging] = useState(false);
+  const [compare, setCompare] = useState(48);
+  const [resultViewMode, setResultViewMode] = useState<ResultViewMode>("generated");
   const [dragState, setDragState] = useState<{
     id: string;
     lastX: number;
@@ -278,17 +285,35 @@ export function CanvasStage({
     x: 0,
     y: 0
   });
+  const [imageSize, setImageSize] = useState<{ width: number; height: number } | null>(
+    null
+  );
+  const [frameSize, setFrameSize] = useState<{ width: number; height: number } | null>(
+    null
+  );
   const [draftArea, setDraftArea] = useState<DraftArea | null>(null);
   const [draftFixture, setDraftFixture] = useState<DraftFixture | null>(null);
 
   useEffect(() => {
+    if (dragState || draftArea || draftFixture || panState) {
+      return;
+    }
+
     onCanvasContextChange({
       activeTool,
       annotations: annotationItems,
       timeRange: defaultTimeRange,
       viewBox
     });
-  }, [activeTool, annotationItems, onCanvasContextChange]);
+  }, [
+    activeTool,
+    annotationItems,
+    dragState,
+    draftArea,
+    draftFixture,
+    onCanvasContextChange,
+    panState
+  ]);
 
   useEffect(() => {
     setAnnotationItems([]);
@@ -297,8 +322,42 @@ export function CanvasStage({
     setDraftFixture(null);
     setDragState(null);
     setPanState(null);
+    setCompare(48);
+    setResultViewMode("generated");
+    setImageSize(null);
     resetCanvasView();
   }, [sourceImageUrl]);
+
+  useEffect(() => {
+    if (resultImageUrl) {
+      setCompare(48);
+      setResultViewMode("generated");
+    }
+  }, [resultImageUrl]);
+
+  useEffect(() => {
+    const frame = imageFrameRef.current;
+
+    if (!frame) {
+      return;
+    }
+
+    const observedFrame = frame;
+
+    function updateFrameSize() {
+      const bounds = observedFrame.getBoundingClientRect();
+      setFrameSize({
+        width: bounds.width,
+        height: bounds.height
+      });
+    }
+
+    updateFrameSize();
+    const resizeObserver = new ResizeObserver(updateFrameSize);
+    resizeObserver.observe(observedFrame);
+
+    return () => resizeObserver.disconnect();
+  }, []);
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
@@ -369,6 +428,66 @@ export function CanvasStage({
       ...current,
       scale: clamp(nextScale, 0.35, 6)
     }));
+  }
+
+  function handleSourceImageLoad(event: SyntheticEvent<HTMLImageElement>) {
+    const image = event.currentTarget;
+
+    setImageSize({
+      width: image.naturalWidth || image.width,
+      height: image.naturalHeight || image.height
+    });
+  }
+
+  function updateCompareFromClientX(clientX: number) {
+    const bounds = viewportContentRef.current?.getBoundingClientRect();
+
+    if (!bounds || bounds.width === 0) {
+      return;
+    }
+
+    const nextCompare = ((clientX - bounds.left) / bounds.width) * 100;
+    setCompare(Math.round(clamp(nextCompare, 0, 100)));
+  }
+
+  function handleComparePointerDown(event: PointerEvent<HTMLDivElement>) {
+    if (!hasResult) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    setIsCompareDragging(true);
+    updateCompareFromClientX(event.clientX);
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
+
+  function handleComparePointerMove(event: PointerEvent<HTMLDivElement>) {
+    if (!isCompareDragging) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    updateCompareFromClientX(event.clientX);
+  }
+
+  function handleComparePointerUp(event: PointerEvent<HTMLDivElement>) {
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+
+    setIsCompareDragging(false);
+  }
+
+  function handleCompareKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") {
+      return;
+    }
+
+    event.preventDefault();
+    const direction = event.key === "ArrowLeft" ? -1 : 1;
+    setCompare((current) => clamp(current + direction * 4, 0, 100));
   }
 
   function handleAnnotationPointerDown(
@@ -1047,6 +1166,10 @@ export function CanvasStage({
   }
 
   const draftAreaRect = draftArea ? normalizeArea(draftArea) : null;
+  const activeResultViewMode = hasResult ? resultViewMode : "source";
+  const showGeneratedImage = hasResult && activeResultViewMode !== "source";
+  const showCompareLayer = hasResult && activeResultViewMode === "compare";
+  const showAnnotationLayer = !hasResult || activeResultViewMode === "source";
   const annotationLayerClassName = [
     "annotation-layer",
     activeTool === "标注灯位" ? "is-marking" : "",
@@ -1054,9 +1177,23 @@ export function CanvasStage({
   ]
     .filter(Boolean)
     .join(" ");
-  const canvasViewportStyle = {
+  const canvasViewportStyle: CSSProperties = {
     transform: `translate3d(${canvasView.x}px, ${canvasView.y}px, 0) scale(${canvasView.scale})`
   };
+
+  if (imageSize && frameSize && imageSize.width > 0 && imageSize.height > 0) {
+    const imageRatio = imageSize.width / imageSize.height;
+    const frameRatio = frameSize.width / frameSize.height;
+    const fittedWidth =
+      frameRatio > imageRatio ? frameSize.height * imageRatio : frameSize.width;
+    const fittedHeight =
+      frameRatio > imageRatio ? frameSize.height : frameSize.width / imageRatio;
+
+    canvasViewportStyle.width = `${fittedWidth}px`;
+    canvasViewportStyle.height = `${fittedHeight}px`;
+    canvasViewportStyle.left = `${(frameSize.width - fittedWidth) / 2}px`;
+    canvasViewportStyle.top = `${(frameSize.height - fittedHeight) / 2}px`;
+  }
 
   return (
     <main className="canvas-shell">
@@ -1168,18 +1305,29 @@ export function CanvasStage({
                 适应
               </button>
             </div>
+            {hasResult ? (
+              <div className="result-view-controls" aria-label="结果查看模式">
+                {[
+                  { id: "generated" as const, label: "生成图" },
+                  { id: "compare" as const, label: "对比原图" },
+                  { id: "source" as const, label: "显示原图" }
+                ].map((mode) => (
+                  <button
+                    className={
+                      activeResultViewMode === mode.id
+                        ? "view-mode-button is-active"
+                        : "view-mode-button"
+                    }
+                    key={mode.id}
+                    type="button"
+                    onClick={() => setResultViewMode(mode.id)}
+                  >
+                    {mode.label}
+                  </button>
+                ))}
+              </div>
+            ) : null}
           </div>
-        </div>
-
-        <div className="fixture-legend-strip" aria-label="灯具标注颜色对应">
-          {fixtureGroups.flatMap((group) =>
-            group.items.map((fixture) => (
-              <span key={fixture} style={getFixtureStyle(fixture)}>
-                <i aria-hidden="true" />
-                {fixture}
-              </span>
-            ))
-          )}
         </div>
 
         <div
@@ -1189,6 +1337,7 @@ export function CanvasStage({
           {hasSource ? (
             <>
               <div
+                ref={viewportContentRef}
                 className={
                   hasResult
                     ? "canvas-viewport-content has-result-preview"
@@ -1196,15 +1345,23 @@ export function CanvasStage({
                 }
                 style={canvasViewportStyle}
               >
-                <img className="render-image source-image" src={sourceImageUrl} alt="用户上传的主图" />
-                {hasResult ? (
+                <img
+                  className="render-image source-image"
+                  src={sourceImageUrl}
+                  alt="用户上传的主图"
+                  onLoad={handleSourceImageLoad}
+                />
+                {showGeneratedImage ? (
                   <>
                     <img
                       className="render-image generated"
                       src={resultImageUrl}
                       alt="生成后的夜景测试预览"
                     />
-                    <div className="night-preview-overlay" aria-hidden="true" />
+                  </>
+                ) : null}
+                {showCompareLayer ? (
+                  <>
                     <img
                       className="render-image before-layer"
                       src={sourceImageUrl}
@@ -1212,51 +1369,94 @@ export function CanvasStage({
                       style={{ clipPath: `inset(0 ${100 - compare}% 0 0)` }}
                       aria-hidden="true"
                     />
-                    <div className="compare-line" style={{ left: `${compare}%` }} />
+                    <div
+                      aria-label="拖动查看原图与生成图对比"
+                      aria-valuemax={100}
+                      aria-valuemin={0}
+                      aria-valuenow={Math.round(compare)}
+                      className={
+                        isCompareDragging ? "compare-line is-dragging" : "compare-line"
+                      }
+                      onKeyDown={handleCompareKeyDown}
+                      onPointerCancel={handleComparePointerUp}
+                      onPointerDown={handleComparePointerDown}
+                      onPointerMove={handleComparePointerMove}
+                      onPointerUp={handleComparePointerUp}
+                      role="slider"
+                      style={{ left: `${compare}%` }}
+                      tabIndex={0}
+                    >
+                      <span className="compare-handle" aria-hidden="true" />
+                    </div>
                   </>
                 ) : null}
 
-                <svg
-                  aria-label="画布标注层"
-                  className={annotationLayerClassName}
-                  ref={svgRef}
-                  role="group"
-                  preserveAspectRatio="none"
-                  viewBox={`0 0 ${viewBox.width} ${viewBox.height}`}
-                  onPointerDown={handleAnnotationCanvasPointerDown}
-                  onPointerLeave={handleAnnotationPointerUp}
-                  onPointerMove={handleAnnotationPointerMove}
-                  onPointerUp={handleAnnotationPointerUp}
-                >
-                  <defs>
-                    <marker
-                      id="fixture-arrow"
-                      markerHeight="6"
-                      markerWidth="6"
-                      orient="auto"
-                      refX="5"
-                      refY="3"
-                      viewBox="0 0 6 6"
-                    >
-                      <path className="fixture-arrow-head" d="M0 0 L6 3 L0 6 Z" />
-                    </marker>
-                  </defs>
-                  {annotationItems.map(renderAnnotation)}
-                  {draftArea && draftAreaRect ? (
-                    <g className={`annotation-draft area-${draftArea.kind}`}>
-                      <rect
-                        className="annotation-area-rect"
-                        x={draftAreaRect.x}
-                        y={draftAreaRect.y}
-                        width={draftAreaRect.width}
-                        height={draftAreaRect.height}
-                        rx="4"
-                      />
-                    </g>
-                  ) : null}
-                  {renderDraftFixture()}
-                </svg>
+                {showAnnotationLayer ? (
+                  <svg
+                    aria-label="画布标注层"
+                    className={annotationLayerClassName}
+                    ref={svgRef}
+                    role="group"
+                    preserveAspectRatio="none"
+                    viewBox={`0 0 ${viewBox.width} ${viewBox.height}`}
+                    onPointerDown={handleAnnotationCanvasPointerDown}
+                    onPointerLeave={handleAnnotationPointerUp}
+                    onPointerMove={handleAnnotationPointerMove}
+                    onPointerUp={handleAnnotationPointerUp}
+                  >
+                    <defs>
+                      <marker
+                        id="fixture-arrow"
+                        markerHeight="6"
+                        markerWidth="6"
+                        orient="auto"
+                        refX="5"
+                        refY="3"
+                        viewBox="0 0 6 6"
+                      >
+                        <path className="fixture-arrow-head" d="M0 0 L6 3 L0 6 Z" />
+                      </marker>
+                    </defs>
+                    {annotationItems.map(renderAnnotation)}
+                    {draftArea && draftAreaRect ? (
+                      <g className={`annotation-draft area-${draftArea.kind}`}>
+                        <rect
+                          className="annotation-area-rect"
+                          x={draftAreaRect.x}
+                          y={draftAreaRect.y}
+                          width={draftAreaRect.width}
+                          height={draftAreaRect.height}
+                          rx="4"
+                        />
+                      </g>
+                    ) : null}
+                    {renderDraftFixture()}
+                  </svg>
+                ) : (
+                  <svg
+                    aria-hidden="true"
+                    className="annotation-layer is-hidden"
+                    ref={svgRef}
+                    preserveAspectRatio="none"
+                    viewBox={`0 0 ${viewBox.width} ${viewBox.height}`}
+                  />
+                )}
               </div>
+
+              {isGenerating ? (
+                <div className="canvas-generating-overlay" role="status">
+                  <div className="canvas-generating-card">
+                    <span className="generating-orb" aria-hidden="true" />
+                    <div>
+                      <strong>图片正在生成中</strong>
+                      <p>{generationMessage || "正在解析画面、匹配灯位并生成夜景效果。"}</p>
+                    </div>
+                    <div className="generation-progress" aria-hidden="true">
+                      <span />
+                    </div>
+                  </div>
+                </div>
+              ) : null}
 
             </>
           ) : (
@@ -1303,15 +1503,15 @@ export function CanvasStage({
           </div>
         ) : null}
 
-        {hasResult ? (
+        {showCompareLayer ? (
           <div className="compare-control">
           <input
             aria-label="前后对比滑杆"
             type="range"
-            min="18"
-            max="82"
+            min="0"
+            max="100"
             value={compare}
-            onChange={(event) => onCompareChange(Number(event.currentTarget.value))}
+            onChange={(event) => setCompare(Number(event.currentTarget.value))}
           />
           </div>
         ) : null}

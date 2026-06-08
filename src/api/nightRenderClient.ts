@@ -35,8 +35,21 @@ async function requestJson<T>(
   }
 
   if (!response.ok) {
+    let errorMessage = "";
+
+    try {
+      const payload = (await response.clone().json()) as {
+        error?: string;
+        message?: string;
+        msg?: string;
+      };
+      errorMessage = payload.error || payload.message || payload.msg || "";
+    } catch {
+      errorMessage = await response.clone().text();
+    }
+
     throw new ApiClientError(
-      `生成服务返回 ${response.status}，请检查后端任务服务。`,
+      errorMessage || `生成服务返回 ${response.status}，请检查后端任务服务。`,
       response.status
     );
   }

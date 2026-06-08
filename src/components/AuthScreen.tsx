@@ -19,6 +19,7 @@ import { Input } from "./ui/input";
 import {
   createRegisteredUser,
   resolveLoginUser,
+  resolveThirdPartyUser,
   type UserProfile
 } from "../auth/userProfile";
 import { cn } from "../lib/utils";
@@ -121,6 +122,10 @@ const initialFields: Record<FieldName, FieldState> = {
   confirmPassword: { value: "", touched: false },
   agreement: { value: "", touched: false }
 };
+
+function wait(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
 
 function validateField(
   name: FieldName,
@@ -259,6 +264,7 @@ export function AuthScreen({ onAuthenticated }: AuthScreenProps) {
   const [agreementAccepted, setAgreementAccepted] = useState(false);
   const [attemptedSubmit, setAttemptedSubmit] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [authError, setAuthError] = useState("");
 
   const activeFields = mode === "login" ? loginFields : registerFields;
   const errors = useMemo(() => {
@@ -281,6 +287,7 @@ export function AuthScreen({ onAuthenticated }: AuthScreenProps) {
   }, [activeFields, agreementAccepted, fields, mode]);
 
   function updateField(name: FieldName, value: string) {
+    setAuthError("");
     setFields((current) => ({
       ...current,
       [name]: {
@@ -324,10 +331,12 @@ export function AuthScreen({ onAuthenticated }: AuthScreenProps) {
     setMode(nextMode);
     setAttemptedSubmit(false);
     setIsSubmitting(false);
+    setAuthError("");
   }
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    setAuthError("");
     setAttemptedSubmit(true);
     markActiveFieldsTouched();
 
@@ -340,31 +349,43 @@ export function AuthScreen({ onAuthenticated }: AuthScreenProps) {
     }
 
     setIsSubmitting(true);
-    window.setTimeout(() => {
+    try {
+      await wait(360);
       const profile =
         mode === "register"
-          ? createRegisteredUser({
+          ? await createRegisteredUser({
               username: fields.username.value,
               email: fields.email.value,
-              phone: fields.phone.value
+              phone: fields.phone.value,
+              password: fields.password.value
             })
-          : resolveLoginUser(fields.identifier.value);
+          : await resolveLoginUser(
+              fields.identifier.value,
+              fields.loginPassword.value,
+              rememberMe
+            );
 
-      setIsSubmitting(false);
       onAuthenticated(profile);
-    }, 360);
+    } catch (error) {
+      setAuthError(error instanceof Error ? error.message : "登录失败，请重试。");
+    } finally {
+      setIsSubmitting(false);
+    }
   }
 
-  function handleThirdPartyLogin(provider: "微信" | "GitHub") {
+  async function handleThirdPartyLogin(provider: "微信" | "GitHub") {
     setIsSubmitting(true);
-    window.setTimeout(() => {
-      const profile = resolveLoginUser(
-        provider === "微信" ? "wechat@zerlum.local" : "github@zerlum.local"
-      );
+    setAuthError("");
 
-      setIsSubmitting(false);
+    try {
+      await wait(300);
+      const profile = resolveThirdPartyUser(provider);
       onAuthenticated(profile);
-    }, 300);
+    } catch (error) {
+      setAuthError(error instanceof Error ? error.message : "第三方登录失败，请重试。");
+    } finally {
+      setIsSubmitting(false);
+    }
   }
 
   return (
@@ -373,10 +394,7 @@ export function AuthScreen({ onAuthenticated }: AuthScreenProps) {
 
       <section className="auth-hero" aria-label="Zerlum login introduction">
         <div className="auth-logo-row">
-          <span className="auth-logo" aria-hidden="true">
-            <Sparkles size={18} />
-          </span>
-          <strong>Zerlum</strong>
+          <img className="auth-page-logo" src="/zerlum-logo.png" alt="Zerlum" />
         </div>
         <h1>
           <span>Enter The</span>
@@ -462,6 +480,13 @@ export function AuthScreen({ onAuthenticated }: AuthScreenProps) {
               </p>
             </div>
           )}
+
+          {authError ? (
+            <div className="auth-submit-error" role="alert">
+              <AlertCircle size={14} aria-hidden="true" />
+              <span>{authError}</span>
+            </div>
+          ) : null}
 
           <Button className="auth-primary" disabled={isSubmitting} type="submit">
             {isSubmitting ? (

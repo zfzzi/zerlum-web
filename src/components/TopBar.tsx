@@ -6,7 +6,6 @@ import {
   LogOut,
   Mail,
   Phone,
-  Sparkles,
   User
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -96,10 +95,7 @@ export function TopBar({
         onClick={onBrandClick}
         aria-label="返回欢迎页面"
       >
-        <div className="brand-mark" aria-hidden="true">
-          <Sparkles size={18} />
-        </div>
-        <span className="brand-name">Zerlum</span>
+        <img className="brand-logo" src="/zerlum-logo.png" alt="Zerlum" />
       </button>
 
       <div className="top-actions">

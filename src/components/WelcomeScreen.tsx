@@ -1,4 +1,3 @@
-import { Sparkles } from "lucide-react";
 import { InteractiveNebulaShader } from "./ui/liquid-shader";
 
 interface WelcomeScreenProps {
@@ -12,10 +11,7 @@ export function WelcomeScreen({ onContinue }: WelcomeScreenProps) {
 
       <section className="welcome-frame" aria-labelledby="welcome-title">
         <div className="welcome-brand">
-          <span className="welcome-brand-mark" aria-hidden="true">
-            <Sparkles size={18} />
-          </span>
-          <span>Zerlum</span>
+          <img className="welcome-logo" src="/zerlum-logo.png" alt="Zerlum" />
         </div>
 
         <div className="welcome-copy">
