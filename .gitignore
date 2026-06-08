@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.vercel/
+
+*.log
+*.local
+*.tsbuildinfo
+qa-screenshots/
+
+.DS_Store
+Thumbs.db
