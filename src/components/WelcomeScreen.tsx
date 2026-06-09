@@ -12,15 +12,20 @@ export function WelcomeScreen({ onContinue }: WelcomeScreenProps) {
     <main className="welcome-screen">
       <InteractiveNebulaShader
         className="welcome-shader"
-        maxPixelRatio={0.75}
-        targetFps={16}
+        disableCenterDimming
+        effect="nebula"
+        maxPixelRatio={0.8}
+        nebulaOffsetX={-0.1}
+        nebulaOffsetY={-0.04}
+        nebulaScale={0.52}
+        targetFps={36}
       />
 
-      <section className="welcome-frame" aria-labelledby="welcome-title">
-        <div className="welcome-brand">
-          <img className="welcome-logo" src="/zerlum-logo.png" alt="Zerlum" />
-        </div>
+      <div className="welcome-brand">
+        <img className="welcome-logo" src="/zerlum-logo.png" alt="Zerlum" />
+      </div>
 
+      <section className="welcome-frame" aria-labelledby="welcome-title">
         <div className="welcome-copy">
           <h1 id="welcome-title">
             <span>Zerlum</span>

@@ -26,9 +26,24 @@ for (const match of scriptMatches) {
   html = html.replace(match[0], () => `<script type="module">\n${js}\n</script>`);
 }
 
-html = html.replace(
-  "<title>夜绘AI 工作台</title>",
-  "<title>夜绘AI 工作台 - 可直接打开版</title>"
-);
+for (const asset of [
+  "favicon.svg",
+  "generating-z-back.png",
+  "generating-z-front.png",
+  "generating-z-icon.png",
+  "sample-night-facade.png",
+  "scene-facade.png",
+  "scene-indoor.png",
+  "scene-outdoor.png",
+  "zerlum-logo.png"
+]) {
+  html = html
+    .replaceAll(`"/${asset}"`, `"./${asset}"`)
+    .replaceAll(`'/${asset}'`, `'./${asset}'`);
+}
+
+html = html
+  .replace("<title>夜绘AI 工作台</title>", "<title>夜绘AI 工作台 - 可直接打开版</title>")
+  .replace("<title>Zerlum 工作台</title>", "<title>Zerlum 工作台 - 可直接打开版</title>");
 
 await writeFile(outPath, html, "utf8");

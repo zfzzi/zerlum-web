@@ -99,6 +99,22 @@ function scalePoint(
   };
 }
 
+function getWashGuideTarget(
+  annotation: Extract<CanvasAnnotationSnapshot, { type: "fixtureLine" }>,
+  viewBox: CanvasGenerationContext["viewBox"],
+  width: number,
+  height: number
+) {
+  if (
+    typeof annotation.guideX2 !== "number" ||
+    typeof annotation.guideY2 !== "number"
+  ) {
+    return null;
+  }
+
+  return scalePoint({ x: annotation.guideX2, y: annotation.guideY2 }, viewBox, width, height);
+}
+
 function drawRadialGlow(
   context: CanvasRenderingContext2D,
   x: number,
@@ -166,6 +182,24 @@ function drawSoftLine(
   }
 
   context.restore();
+}
+
+function getLineSamplePoints(
+  start: { x: number; y: number },
+  end: { x: number; y: number },
+  spacing: number
+) {
+  const length = Math.hypot(end.x - start.x, end.y - start.y);
+  const steps = Math.max(1, Math.round(length / spacing));
+
+  return Array.from({ length: steps + 1 }, (_, index) => {
+    const progress = index / steps;
+
+    return {
+      x: start.x + (end.x - start.x) * progress,
+      y: start.y + (end.y - start.y) * progress
+    };
+  });
 }
 
 function drawBeam(
@@ -248,6 +282,27 @@ function drawFixtureLighting(
   if (annotation.type === "fixtureLine") {
     const start = scalePoint({ x: annotation.x1, y: annotation.y1 }, viewBox, width, height);
     const end = scalePoint({ x: annotation.x2, y: annotation.y2 }, viewBox, width, height);
+
+    if (annotation.kind === "dot" || annotation.kind === "pixel") {
+      const spacing = Math.max(
+        annotation.kind === "pixel" ? 15 : 22,
+        Math.min(width, height) * (annotation.kind === "pixel" ? 0.016 : 0.024)
+      );
+
+      for (const point of getLineSamplePoints(start, end, spacing)) {
+        drawRadialGlow(
+          context,
+          point.x,
+          point.y,
+          Math.max(14, Math.min(width, height) * 0.028),
+          colorTemperature,
+          strength * (annotation.kind === "pixel" ? 0.72 : 0.82)
+        );
+      }
+
+      return;
+    }
+
     const lineWidth =
       annotation.kind === "wash"
         ? Math.max(7, Math.min(width, height) * 0.012)
@@ -255,10 +310,27 @@ function drawFixtureLighting(
     drawSoftLine(context, start, end, colorTemperature, strength, lineWidth);
 
     if (annotation.kind === "wash") {
+      const center = {
+        x: (start.x + end.x) / 2,
+        y: (start.y + end.y) / 2
+      };
+      const guideTarget = getWashGuideTarget(annotation, viewBox, width, height);
+
+      if (guideTarget) {
+        drawSoftLine(
+          context,
+          center,
+          guideTarget,
+          colorTemperature,
+          strength * 0.5,
+          Math.max(3, lineWidth * 0.55)
+        );
+      }
+
       drawRadialGlow(
         context,
-        (start.x + end.x) / 2,
-        (start.y + end.y) / 2,
+        guideTarget?.x ?? center.x,
+        guideTarget?.y ?? center.y,
         Math.max(48, Math.hypot(end.x - start.x, end.y - start.y) * 0.2),
         colorTemperature,
         strength * 0.26

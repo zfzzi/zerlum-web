@@ -4,6 +4,7 @@ import {
   Send,
   SquareStack
 } from "lucide-react";
+import { memo } from "react";
 import type { ExportRequest, GenerationHistoryItem } from "../types/nightRender";
 import { HistoryPanel } from "./HistoryPanel";
 
@@ -12,6 +13,11 @@ const outputSizes: ExportRequest["type"][] = [
   "4K",
   "6K",
   "8K"
+];
+
+const renderEngines = [
+  { id: "image2" as const, label: "image2" },
+  { id: "banana" as const, label: "banana" }
 ];
 
 interface ApiStatus {
@@ -34,7 +40,7 @@ interface InspectorPanelProps {
   onRenderEngineChange: (engine: "image2" | "banana") => void;
 }
 
-export function InspectorPanel({
+function InspectorPanelComponent({
   apiStatus,
   canExport,
   canGenerate,
@@ -65,10 +71,7 @@ export function InspectorPanel({
           出图模型
         </div>
         <div className="render-engine-grid" role="group" aria-label="选择出图模型">
-          {[
-            { id: "image2" as const, label: "image2" },
-            { id: "banana" as const, label: "banana" }
-          ].map((engine) => (
+          {renderEngines.map((engine) => (
             <button
               className={engine.id === renderEngine ? "export-button is-active" : "export-button"}
               key={engine.id}
@@ -142,3 +145,5 @@ export function InspectorPanel({
     </aside>
   );
 }
+
+export const InspectorPanel = memo(InspectorPanelComponent);

@@ -25,6 +25,27 @@ function scalePoint(
   };
 }
 
+function getWashGuideTarget(
+  annotation: Extract<CanvasAnnotationSnapshot, { type: "fixtureLine" }>,
+  viewBox: CanvasGenerationContext["viewBox"],
+  width: number,
+  height: number
+) {
+  if (
+    typeof annotation.guideX1 !== "number" ||
+    typeof annotation.guideY1 !== "number" ||
+    typeof annotation.guideX2 !== "number" ||
+    typeof annotation.guideY2 !== "number"
+  ) {
+    return null;
+  }
+
+  return {
+    start: scalePoint({ x: annotation.guideX1, y: annotation.guideY1 }, viewBox, width, height),
+    end: scalePoint({ x: annotation.guideX2, y: annotation.guideY2 }, viewBox, width, height)
+  };
+}
+
 function getFixtureColor(fixture: string) {
   return fixtureColorMap[fixture] ?? "#A78BFA";
 }
@@ -34,30 +55,19 @@ function drawLabel(
   label: string,
   x: number,
   y: number,
-  color: string,
+  _color: string,
   width: number,
   height: number
 ) {
-  const fontSize = Math.max(14, Math.round(Math.min(width, height) * 0.018));
+  const fontSize = Math.max(16, Math.round(Math.min(width, height) * 0.02));
   context.font = `700 ${fontSize}px Arial, sans-serif`;
-  const paddingX = Math.round(fontSize * 0.62);
-  const paddingY = Math.round(fontSize * 0.42);
   const textWidth = context.measureText(label).width;
-  const boxWidth = textWidth + paddingX * 2;
-  const boxHeight = fontSize + paddingY * 2;
-  const boxX = Math.min(Math.max(8, x), width - boxWidth - 8);
-  const boxY = Math.min(Math.max(8, y - boxHeight - 8), height - boxHeight - 8);
+  const textX = Math.min(Math.max(8, x), width - textWidth - 8);
+  const textY = Math.min(Math.max(fontSize + 8, y), height - 8);
 
   context.save();
-  context.fillStyle = "rgba(5, 3, 16, 0.82)";
-  context.strokeStyle = color;
-  context.lineWidth = 2;
-  context.beginPath();
-  context.roundRect(boxX, boxY, boxWidth, boxHeight, 8);
-  context.fill();
-  context.stroke();
-  context.fillStyle = "#ffffff";
-  context.fillText(label, boxX + paddingX, boxY + paddingY + fontSize * 0.78);
+  context.fillStyle = "#ff3b3b";
+  context.fillText(label, textX, textY);
   context.restore();
 }
 
@@ -81,6 +91,24 @@ function drawArrowHead(
   context.closePath();
   context.fill();
   context.restore();
+}
+
+function getLineSamplePoints(
+  start: { x: number; y: number },
+  end: { x: number; y: number },
+  spacing: number
+) {
+  const length = Math.hypot(end.x - start.x, end.y - start.y);
+  const steps = Math.max(1, Math.round(length / spacing));
+
+  return Array.from({ length: steps + 1 }, (_, index) => {
+    const progress = index / steps;
+
+    return {
+      x: start.x + (end.x - start.x) * progress,
+      y: start.y + (end.y - start.y) * progress
+    };
+  });
 }
 
 function drawFixtureAnnotation(
@@ -118,14 +146,47 @@ function drawFixtureAnnotation(
       width,
       height
     );
-    context.lineWidth = annotation.kind === "wash" ? strokeWidth * 1.35 : strokeWidth;
-    context.setLineDash(annotation.kind === "wash" ? [strokeWidth * 3, strokeWidth * 1.6] : []);
-    context.beginPath();
-    context.moveTo(start.x, start.y);
-    context.lineTo(end.x, end.y);
-    context.stroke();
-    context.setLineDash([]);
-    drawLabel(context, annotation.label, start.x + 10, start.y - 8, color, width, height);
+    if (annotation.kind === "dot" || annotation.kind === "pixel") {
+      const spacing = Math.max(
+        annotation.kind === "pixel" ? strokeWidth * 3 : strokeWidth * 4,
+        18
+      );
+
+      for (const point of getLineSamplePoints(start, end, spacing)) {
+        context.beginPath();
+        context.arc(point.x, point.y, 3, 0, Math.PI * 2);
+        context.fill();
+        context.strokeStyle = "rgba(255,255,255,0.72)";
+        context.lineWidth = 0.8;
+        context.stroke();
+        context.strokeStyle = color;
+      }
+    } else {
+      context.lineWidth = annotation.kind === "wash" ? strokeWidth * 0.9 : strokeWidth * 0.72;
+      context.setLineDash(annotation.kind === "wash" ? [strokeWidth * 2.4, strokeWidth * 1.4] : []);
+      context.beginPath();
+      context.moveTo(start.x, start.y);
+      context.lineTo(end.x, end.y);
+      context.stroke();
+      context.setLineDash([]);
+
+      if (annotation.kind === "wash") {
+        const guide = getWashGuideTarget(annotation, viewBox, width, height);
+
+        if (guide) {
+          context.lineWidth = Math.max(1.5, strokeWidth * 0.4);
+          context.setLineDash([strokeWidth * 1.2, strokeWidth * 1.8]);
+          context.beginPath();
+          context.moveTo(guide.start.x, guide.start.y);
+          context.lineTo(guide.end.x, guide.end.y);
+          context.stroke();
+          context.setLineDash([]);
+          drawArrowHead(context, guide.start, guide.end, color, strokeWidth * 2.4);
+        }
+      }
+    }
+
+    drawLabel(context, annotation.label, end.x + 10, end.y - 8, color, width, height);
   }
 
   if (annotation.type === "fixtureDirection") {
@@ -136,22 +197,22 @@ function drawFixtureAnnotation(
       width,
       height
     );
-    context.lineWidth = strokeWidth;
+    context.lineWidth = Math.max(1.5, strokeWidth * 0.55);
     context.beginPath();
     context.moveTo(start.x, start.y);
     context.lineTo(end.x, end.y);
     context.stroke();
-    drawArrowHead(context, start, end, color, strokeWidth * 4.2);
+    drawArrowHead(context, start, end, color, strokeWidth * 2.8);
     context.beginPath();
-    context.arc(start.x, start.y, strokeWidth * 2.4, 0, Math.PI * 2);
+    context.arc(start.x, start.y, strokeWidth * 1.25, 0, Math.PI * 2);
     context.fill();
-    drawLabel(context, annotation.label, start.x + 14, start.y - 12, color, width, height);
+    drawLabel(context, annotation.label, end.x + 10, end.y - 8, color, width, height);
   }
 
   if (annotation.type === "fixturePoint") {
     const point = scalePoint({ x: annotation.x, y: annotation.y }, viewBox, width, height);
     context.beginPath();
-    context.arc(point.x, point.y, strokeWidth * 2.5, 0, Math.PI * 2);
+    context.arc(point.x, point.y, 3, 0, Math.PI * 2);
     context.fill();
     context.lineWidth = Math.max(2, strokeWidth * 0.5);
     context.strokeStyle = "#ffffff";

@@ -53,6 +53,10 @@ export interface ApiFixtureAnnotation {
       height: number;
     };
   };
+  guide?: {
+    points: ApiPoint[];
+    normalizedPoints: ApiPoint[];
+  };
   normalizedCoordinates: unknown;
 }
 
@@ -109,6 +113,7 @@ const outputSizeMap: Record<ExportRequest["type"], string> = {
 };
 
 const canvasToolPrompts: Record<CanvasTool, string> = {
+  查看: "当前未启用标注工具，画布上的已有标注仍参与生成。",
   局部重绘: "局部重绘区域只允许调整灯光、亮度、氛围和内透，不改变原始结构。",
   遮罩选择: "遮罩选择区域是重点生成区域，需要优先响应用户的灯光和氛围要求。",
   标注灯位: "标注灯位表示灯具安装位置、范围和照射方向，生成时必须按对应灯具类型呈现光效。",
@@ -134,7 +139,7 @@ const editColorMap: Record<string, string> = {
   avoid: "#A855F7"
 };
 
-function isFiniteNumber(value: number) {
+function isFiniteNumber(value: unknown): value is number {
   return Number.isFinite(value);
 }
 
@@ -287,6 +292,34 @@ function getLineLength(points: ApiPoint[]) {
   return Math.round(Math.hypot(points[1].x - points[0].x, points[1].y - points[0].y));
 }
 
+function getLineInfluence(annotation: Extract<CanvasAnnotationSnapshot, { type: "fixtureLine" }>) {
+  if (annotation.kind === "wash") {
+    return "洗墙灯按整段墙面形成连续、柔和、较宽的洗亮范围";
+  }
+
+  if (annotation.kind === "dot") {
+    return "点光源按拖拽路径形成一串独立小圆点发光，不连成实线";
+  }
+
+  if (annotation.kind === "pixel") {
+    return "像素灯按拖拽路径形成间隔更密的像素点阵发光，颜色和点光源区分，不连成连续线";
+  }
+
+  return "线性灯按整段线条形成连续、清晰但不过曝的光带";
+}
+
+function getLineStrokeWidth(annotation: Extract<CanvasAnnotationSnapshot, { type: "fixtureLine" }>) {
+  if (annotation.kind === "wash") {
+    return 9;
+  }
+
+  if (annotation.kind === "dot" || annotation.kind === "pixel") {
+    return 6;
+  }
+
+  return 7;
+}
+
 function buildLineAnnotation(
   annotation: Extract<CanvasAnnotationSnapshot, { type: "fixtureLine" }>,
   viewBox: CanvasGenerationContext["viewBox"]
@@ -299,6 +332,23 @@ function buildLineAnnotation(
   if (!points.every((point) => isFiniteNumber(point.x) && isFiniteNumber(point.y))) {
     return null;
   }
+  const guidePoints =
+    annotation.kind === "wash" &&
+    isFiniteNumber(annotation.guideX1) &&
+    isFiniteNumber(annotation.guideY1) &&
+    isFiniteNumber(annotation.guideX2) &&
+    isFiniteNumber(annotation.guideY2)
+      ? [
+          { x: annotation.guideX1, y: annotation.guideY1 },
+          { x: annotation.guideX2, y: annotation.guideY2 }
+        ]
+      : undefined;
+  const guideDescription = guidePoints
+    ? `，洗墙方向由${describePointPosition(guidePoints[0], viewBox)}指向${describePointPosition(
+        guidePoints[1],
+        viewBox
+      )}`
+    : "";
 
   return {
     id: annotation.id,
@@ -307,14 +357,11 @@ function buildLineAnnotation(
     type: "line",
     fixtureType: annotation.fixture,
     color: fixtureColorMap[annotation.fixture] ?? "#A78BFA",
-    placementDescription: describeLinePlacement(points, viewBox),
-    influenceDescription:
-      annotation.kind === "wash"
-        ? "洗墙灯按整段墙面形成连续、柔和、较宽的洗亮范围"
-        : "线性灯按整段线条形成连续、清晰但不过曝的光带",
+    placementDescription: `${describeLinePlacement(points, viewBox)}${guideDescription}`,
+    influenceDescription: getLineInfluence(annotation),
     size: {
       length: getLineLength(points),
-      strokeWidth: annotation.kind === "wash" ? 10 : 8
+      strokeWidth: getLineStrokeWidth(annotation)
     },
     coordinates: {
       points: points.map((point) => ({
@@ -322,6 +369,17 @@ function buildLineAnnotation(
         y: roundCoordinate(point.y)
       }))
     },
+    guide: guidePoints
+      ? {
+          points: guidePoints.map((point) => ({
+            x: roundCoordinate(point.x),
+            y: roundCoordinate(point.y)
+          })),
+          normalizedPoints: guidePoints.map((point) =>
+            normalizePoint(point, viewBox.width, viewBox.height)
+          )
+        }
+      : undefined,
     normalizedCoordinates: {
       points: points.map((point) =>
         normalizePoint(point, viewBox.width, viewBox.height)

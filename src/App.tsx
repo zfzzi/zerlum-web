@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   applyFixtureLightingToResult,
   createFixtureLightingGuideImage,
@@ -22,6 +23,7 @@ import {
 } from "./auth/userProfile";
 import { AuthScreen } from "./components/AuthScreen";
 import { CanvasStage } from "./components/CanvasStage";
+import { GeneratingNightOverlay } from "./components/GeneratingNightOverlay";
 import { InspectorPanel } from "./components/InspectorPanel";
 import { LeftPanel } from "./components/LeftPanel";
 import { TopBar } from "./components/TopBar";
@@ -56,7 +58,7 @@ const previewUser: UserProfile = {
 };
 
 const initialCanvasContext: CanvasGenerationContext = {
-  activeTool: "标注灯位",
+  activeTool: "查看",
   annotations: [],
   timeRange: "蓝调时刻 18:00-19:00",
   viewBox: {
@@ -64,6 +66,17 @@ const initialCanvasContext: CanvasGenerationContext = {
     height: 560
   }
 };
+
+const negativePromptDefaults = [
+  "不改变建筑结构",
+  "不改变透视",
+  "不改变窗户位置",
+  "不改变地砖",
+  "不过度曝光",
+  "不失真",
+  "不模糊",
+  "不改变人物和树木"
+];
 
 function readPreviewMode(): PreviewMode {
   if (typeof window === "undefined") {
@@ -145,17 +158,8 @@ function App() {
   const [selectedTemplate, setSelectedTemplate] =
     useState<LightingMoodTemplate>(styleReferences[0].template);
   const [activeFixture, setActiveFixture] = useState("洗墙灯");
-  const [negativePrompts] = useState([
-    "不改变建筑结构",
-    "不改变透视",
-    "不改变窗户位置",
-    "不改变地砖",
-    "不过度曝光",
-    "不失真",
-    "不模糊",
-    "不改变人物和树木"
-  ]);
-  const [activeTool, setActiveTool] = useState<CanvasTool>("标注灯位");
+  const negativePrompts = negativePromptDefaults;
+  const [activeTool, setActiveTool] = useState<CanvasTool>("查看");
   const [prompt, setPrompt] = useState(initialPrompt);
   const [outputSize, setOutputSize] = useState<ExportRequest["type"]>("4K");
   const [renderEngine, setRenderEngine] = useState<"image2" | "banana">("banana");
@@ -183,7 +187,7 @@ function App() {
     return () => window.removeEventListener("popstate", handlePreviewRouteChange);
   }, []);
 
-  function navigatePreview(mode: PreviewMode) {
+  const navigatePreview = useCallback((mode: PreviewMode) => {
     const nextUrl = new URL(window.location.href);
 
     if (mode) {
@@ -194,44 +198,39 @@ function App() {
 
     window.history.pushState(null, "", `${nextUrl.pathname}${nextUrl.search}${nextUrl.hash}`);
     setPreviewMode(mode);
-  }
+  }, []);
 
-  function handleUpload(id: string, file: File) {
+  const handleUpload = useCallback((id: string, file: File) => {
     const previewUrl = file.type.startsWith("image/")
       ? URL.createObjectURL(file)
       : undefined;
-    const previousPreviewUrl = references.find((reference) => reference.id === id)?.previewUrl;
-
-    if (previousPreviewUrl?.startsWith("blob:")) {
-      URL.revokeObjectURL(previousPreviewUrl);
-    }
 
     if (id === "primary") {
       setResultImageUrl(undefined);
     }
 
     setReferences((current) =>
-      current.map((reference) =>
-        reference.id === id
-          ? {
-              ...reference,
-              file,
-              fileName: file.name,
-              previewUrl,
-              status: "ready"
-            }
-          : reference
-      )
+      current.map((reference) => {
+        if (reference.id !== id) {
+          return reference;
+        }
+
+        if (reference.previewUrl?.startsWith("blob:")) {
+          URL.revokeObjectURL(reference.previewUrl);
+        }
+
+        return {
+          ...reference,
+          file,
+          fileName: file.name,
+          previewUrl,
+          status: "ready"
+        };
+      })
     );
-  }
+  }, []);
 
-  function handleRemoveUpload(id: string) {
-    const previousPreviewUrl = references.find((reference) => reference.id === id)?.previewUrl;
-
-    if (previousPreviewUrl?.startsWith("blob:")) {
-      URL.revokeObjectURL(previousPreviewUrl);
-    }
-
+  const handleRemoveUpload = useCallback((id: string) => {
     if (id === "primary") {
       setResultImageUrl(undefined);
       setApiStatus({
@@ -241,21 +240,37 @@ function App() {
     }
 
     setReferences((current) =>
-      current.map((reference) =>
-        reference.id === id
-          ? {
-              ...reference,
-              file: undefined,
-              fileName: undefined,
-              previewUrl: undefined,
-              status: "missing"
-            }
-          : reference
-      )
-    );
-  }
+      current.map((reference) => {
+        if (reference.id !== id) {
+          return reference;
+        }
 
-  async function handleGenerate() {
+        if (reference.previewUrl?.startsWith("blob:")) {
+          URL.revokeObjectURL(reference.previewUrl);
+        }
+
+        return {
+          ...reference,
+          file: undefined,
+          fileName: undefined,
+          previewUrl: undefined,
+          status: "missing"
+        };
+      })
+    );
+  }, []);
+
+  const primaryPreviewUrl = useMemo(
+    () => references.find((reference) => reference.role === "primary")?.previewUrl,
+    [references]
+  );
+
+  const activeUser = useMemo(
+    () => (previewMode === "workspace" ? currentUser ?? previewUser : currentUser),
+    [currentUser, previewMode]
+  );
+
+  const handleGenerate = useCallback(async () => {
     const primaryReference = references.find(
       (reference) =>
         reference.role === "primary" &&
@@ -518,9 +533,21 @@ function App() {
     } finally {
       setIsGeneratingImage(false);
     }
-  }
+  }, [
+    activeFixture,
+    activeUser,
+    canvasContext,
+    negativePrompts,
+    outputSize,
+    prompt,
+    references,
+    renderEngine,
+    sceneType,
+    selectedStyleReference,
+    selectedTemplate
+  ]);
 
-  async function handleExport() {
+  const handleExport = useCallback(async () => {
     const imageUrl = resultImageUrl ?? primaryPreviewUrl;
 
     if (!imageUrl) {
@@ -560,20 +587,19 @@ function App() {
             : "导出失败。"
       });
     }
-  }
+  }, [outputSize, primaryPreviewUrl, resultImageUrl]);
 
-  function handleStyleSelect(style: typeof selectedStyleReference) {
+  const handleStyleSelect = useCallback((style: typeof selectedStyleReference) => {
     setSelectedStyleReference(style);
     setSceneType(style.sceneType);
     setSelectedTemplate(style.template);
-  }
+  }, []);
 
-  function handleFixtureChange(fixture: string) {
+  const handleFixtureChange = useCallback((fixture: string) => {
     setActiveFixture(fixture);
-    setActiveTool("标注灯位");
-  }
+  }, []);
 
-  function handleRechargeCredits(amount: number) {
+  const handleRechargeCredits = useCallback((amount: number) => {
     if (!currentUser) {
       return;
     }
@@ -582,21 +608,21 @@ function App() {
     if (updatedUser) {
       setCurrentUser(updatedUser);
     }
-  }
+  }, [currentUser]);
 
-  function handleLogout() {
+  const handleLogout = useCallback(() => {
     clearCurrentUser();
     setAuthStage("auth");
     setCurrentUser(null);
-  }
+  }, []);
 
-  const primaryPreviewUrl = references.find(
-    (reference) => reference.role === "primary"
-  )?.previewUrl;
+  const handlePrimaryImageUpload = useCallback(
+    (file: File) => handleUpload("primary", file),
+    [handleUpload]
+  );
+
   const canGenerate = Boolean(primaryPreviewUrl);
   const canExport = Boolean(resultImageUrl);
-
-  const activeUser = previewMode === "workspace" ? currentUser ?? previewUser : currentUser;
 
   if (previewMode === "welcome") {
     return <WelcomeScreen onContinue={() => navigatePreview(currentUser ? "workspace" : "auth")} />;
@@ -640,6 +666,12 @@ function App() {
           <span>{apiStatus.message}</span>
         </div>
       ) : null}
+      {isGeneratingImage
+        ? createPortal(
+            <GeneratingNightOverlay className="workspace-generating-overlay" />,
+            document.body
+          )
+        : null}
       <div className="workspace">
         <LeftPanel
           references={references}
@@ -651,13 +683,12 @@ function App() {
         <CanvasStage
           activeFixture={activeFixture}
           activeTool={activeTool}
-          generationMessage={apiStatus.message}
           isGenerating={isGeneratingImage}
           resultImageUrl={resultImageUrl}
           sourceImageUrl={primaryPreviewUrl}
           onCanvasContextChange={setCanvasContext}
           onFixtureChange={handleFixtureChange}
-          onPrimaryImageUpload={(file) => handleUpload("primary", file)}
+          onPrimaryImageUpload={handlePrimaryImageUpload}
           onToolChange={setActiveTool}
         />
         <InspectorPanel

@@ -6,7 +6,11 @@ export interface InteractiveNebulaShaderProps {
   hasActiveReminders?: boolean;
   hasUpcomingReminders?: boolean;
   disableCenterDimming?: boolean;
+  effect?: "nebula" | "lightRings";
   maxPixelRatio?: number;
+  nebulaOffsetX?: number;
+  nebulaOffsetY?: number;
+  nebulaScale?: number;
   targetFps?: number;
   className?: string;
 }
@@ -20,7 +24,11 @@ export function InteractiveNebulaShader({
   hasActiveReminders = false,
   hasUpcomingReminders = false,
   disableCenterDimming = false,
+  effect = "nebula",
   maxPixelRatio = 0.9,
+  nebulaOffsetX = 0,
+  nebulaOffsetY = 0,
+  nebulaScale = 1,
   targetFps = 18,
   className = ""
 }: InteractiveNebulaShaderProps) {
@@ -34,8 +42,17 @@ export function InteractiveNebulaShader({
       material.uniforms.hasActiveReminders.value = hasActiveReminders;
       material.uniforms.hasUpcomingReminders.value = hasUpcomingReminders;
       material.uniforms.disableCenterDimming.value = disableCenterDimming;
+      material.uniforms.uNebulaOffset.value.set(nebulaOffsetX, nebulaOffsetY);
+      material.uniforms.uNebulaScale.value = nebulaScale;
     }
-  }, [hasActiveReminders, hasUpcomingReminders, disableCenterDimming]);
+  }, [
+    hasActiveReminders,
+    hasUpcomingReminders,
+    disableCenterDimming,
+    nebulaOffsetX,
+    nebulaOffsetY,
+    nebulaScale
+  ]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -70,7 +87,7 @@ export function InteractiveNebulaShader({
       }
     `;
 
-    const fragmentShader = `
+    const nebulaFragmentShader = `
       precision mediump float;
 
       uniform vec2 iResolution;
@@ -79,6 +96,8 @@ export function InteractiveNebulaShader({
       uniform bool hasActiveReminders;
       uniform bool hasUpcomingReminders;
       uniform bool disableCenterDimming;
+      uniform vec2 uNebulaOffset;
+      uniform float uNebulaScale;
 
       varying vec2 vUv;
 
@@ -102,8 +121,8 @@ export function InteractiveNebulaShader({
       }
 
       void mainImage(out vec4 O, in vec2 fragCoord) {
-        vec2 uv = fragCoord / min(iResolution.x, iResolution.y) - vec2(0.9, 0.5);
-        uv.x += 0.4;
+        vec2 uv = (fragCoord - iResolution * 0.5) / min(iResolution.x, iResolution.y);
+        uv = uv * uNebulaScale + uNebulaOffset;
 
         vec3 col = vec3(0.0);
         float d = 2.5;
@@ -139,13 +158,57 @@ export function InteractiveNebulaShader({
       }
     `;
 
+    const lightRingsFragmentShader = `
+      #define TWO_PI 6.2831853072
+      #define PI 3.14159265359
+
+      precision highp float;
+
+      uniform vec2 iResolution;
+      uniform float iTime;
+
+      varying vec2 vUv;
+
+      void mainImage(out vec4 O, in vec2 fragCoord) {
+        vec2 uv = (fragCoord.xy * 2.0 - iResolution.xy) / min(iResolution.x, iResolution.y);
+        uv += vec2(0.34, 0.46);
+        float t = iTime * 0.05;
+        float lineWidth = 0.002;
+
+        vec3 color = vec3(0.0);
+        for (int j = 0; j < 3; j++) {
+          for (int i = 0; i < 5; i++) {
+            float ring = fract(t - 0.01 * float(j) + float(i) * 0.01) * 5.0;
+            float distanceField = abs(ring - length(uv) + mod(uv.x + uv.y, 0.2));
+            color[j] += lineWidth * float(i * i) / max(distanceField, 0.001);
+          }
+        }
+
+        vec2 centeredUv = uv * vec2(0.82, 1.0);
+        float vignette = smoothstep(1.72, 0.22, length(centeredUv));
+        vec3 tint = vec3(0.92, 0.98, 1.12);
+        vec3 glow = color * tint * (0.42 + vignette * 0.58) * 0.56;
+
+        O = vec4(glow, 1.0);
+      }
+
+      void main() {
+        mainImage(gl_FragColor, vUv * iResolution);
+      }
+    `;
+
+    const fragmentShader =
+      effect === "lightRings" ? lightRingsFragmentShader : nebulaFragmentShader;
+
     const uniforms = {
       iTime: { value: 0 },
       iResolution: { value: new THREE.Vector2() },
       iMouse: { value: new THREE.Vector2() },
       hasActiveReminders: { value: hasActiveReminders },
       hasUpcomingReminders: { value: hasUpcomingReminders },
-      disableCenterDimming: { value: disableCenterDimming }
+      disableCenterDimming: { value: disableCenterDimming },
+      uNebulaOffset: { value: new THREE.Vector2(nebulaOffsetX, nebulaOffsetY) },
+      uNebulaScale: { value: nebulaScale }
     };
 
     const material = new THREE.ShaderMaterial({
@@ -208,7 +271,7 @@ export function InteractiveNebulaShader({
       renderer.dispose();
       materialRef.current = null;
     };
-  }, [animated, maxPixelRatio, targetFps]);
+  }, [animated, effect, maxPixelRatio, nebulaOffsetX, nebulaOffsetY, nebulaScale, targetFps]);
 
   return (
     <div

@@ -8,7 +8,7 @@ import {
   Palette,
   Trash2
 } from "lucide-react";
-import { useState } from "react";
+import { memo, useMemo, useState } from "react";
 import { styleReferences } from "../data";
 import type {
   ReferenceImage,
@@ -32,7 +32,7 @@ interface LeftPanelProps {
   onUpload: (id: string, file: File) => void;
 }
 
-export function LeftPanel({
+function LeftPanelComponent({
   references,
   selectedStyleId,
   onRemoveUpload,
@@ -40,8 +40,14 @@ export function LeftPanel({
   onUpload
 }: LeftPanelProps) {
   const [dropTargetId, setDropTargetId] = useState<string>();
-  const primaryReferences = references.filter((reference) => reference.role === "primary");
-  const visualReferences = references.filter((reference) => reference.role !== "primary");
+  const primaryReferences = useMemo(
+    () => references.filter((reference) => reference.role === "primary"),
+    [references]
+  );
+  const visualReferences = useMemo(
+    () => references.filter((reference) => reference.role !== "primary"),
+    [references]
+  );
 
   return (
     <aside className="panel left-panel" aria-label="项目与素材">
@@ -82,7 +88,7 @@ export function LeftPanel({
               }}
             >
               <label
-                className={`upload-preview preview-${reference.role}`}
+                className={`upload-preview preview-${reference.role}${previewUrl ? " has-upload-image" : ""}`}
                 htmlFor={`upload-${reference.id}`}
                 aria-hidden="true"
               >
@@ -198,14 +204,16 @@ export function LeftPanel({
                   }
                 }}
               >
-                <label className="reference-upload-box" htmlFor={`upload-${reference.id}`}>
+                <label
+                  className={`reference-upload-box${previewUrl ? " has-upload-image" : ""}`}
+                  htmlFor={`upload-${reference.id}`}
+                >
                   {previewUrl ? (
                     <img src={previewUrl} alt={reference.label} />
                   ) : (
                     <span>
                       <ImagePlus size={24} aria-hidden="true" />
                       <strong>{reference.label}</strong>
-                      <small>{reference.hint}</small>
                     </span>
                   )}
                 </label>
@@ -241,3 +249,5 @@ export function LeftPanel({
     </aside>
   );
 }
+
+export const LeftPanel = memo(LeftPanelComponent);

@@ -3,6 +3,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent,
   type SyntheticEvent,
+  memo,
   useEffect,
   useRef,
   useState
@@ -25,11 +26,11 @@ import type {
   CanvasTool,
   NightRenderTimeRange
 } from "../types/nightRender";
+import { GeneratingNightOverlay } from "./GeneratingNightOverlay";
 
 interface CanvasStageProps {
   activeFixture: string;
   activeTool: CanvasTool;
-  generationMessage?: string;
   isGenerating: boolean;
   resultImageUrl?: string;
   sourceImageUrl?: string;
@@ -59,8 +60,8 @@ const annotationBounds = {
 
 type AreaTool = Extract<CanvasTool, "局部重绘" | "遮罩选择" | "禁止修改">;
 type AreaKind = "repaint" | "mask" | "avoid";
-type FixtureLineKind = "wash" | "linear";
-type FixtureMarkMode = "line" | "direction" | "point" | "area";
+type FixtureLineKind = "wash" | "linear" | "dot" | "pixel";
+type FixtureMarkMode = "line" | "washDirection" | "direction" | "point" | "area";
 type ResultViewMode = "generated" | "compare" | "source";
 
 type CanvasAnnotationItem = CanvasAnnotationSnapshot;
@@ -78,10 +79,16 @@ interface DraftFixture {
   mode: FixtureMarkMode;
   kind?: FixtureLineKind;
   fixture: string;
+  label?: string;
   startX: number;
   startY: number;
   currentX: number;
   currentY: number;
+  lineStartX?: number;
+  lineStartY?: number;
+  lineEndX?: number;
+  lineEndY?: number;
+  isSettingDirection?: boolean;
 }
 
 interface DragState {
@@ -126,7 +133,116 @@ function distance(x1: number, y1: number, x2: number, y2: number) {
 }
 
 function labelWidth(label: string) {
-  return Math.max(70, label.length * 12 + 18);
+  return Math.max(50, label.length * 10.5 + 4);
+}
+
+function getEndpointLabelPosition(label: string, x: number, y: number) {
+  return {
+    x: clamp(x + 8, 8, viewBox.width - labelWidth(label) - 8),
+    y: clamp(y - 7, 16, viewBox.height - 8)
+  };
+}
+
+function getLineSamplePoints(
+  start: { x: number; y: number },
+  end: { x: number; y: number },
+  spacing: number
+) {
+  const length = distance(start.x, start.y, end.x, end.y);
+  const steps = Math.max(1, Math.round(length / spacing));
+
+  return Array.from({ length: steps + 1 }, (_, index) => {
+    const progress = index / steps;
+
+    return {
+      x: start.x + (end.x - start.x) * progress,
+      y: start.y + (end.y - start.y) * progress
+    };
+  });
+}
+
+function getWashDirectionGuide(
+  start: { x: number; y: number },
+  end: { x: number; y: number }
+) {
+  const length = distance(start.x, start.y, end.x, end.y);
+  const center = {
+    x: (start.x + end.x) / 2,
+    y: (start.y + end.y) / 2
+  };
+
+  if (length < 1) {
+    return { start: center, end: center };
+  }
+
+  const offset = 46;
+  const normalX = -((end.y - start.y) / length);
+  const normalY = (end.x - start.x) / length;
+
+  return {
+    start: center,
+    end: clampToAnnotationBounds({
+      x: center.x + normalX * offset,
+      y: center.y + normalY * offset
+    })
+  };
+}
+
+function getWashGuideCenter(line: {
+  lineStartX: number;
+  lineStartY: number;
+  lineEndX: number;
+  lineEndY: number;
+}) {
+  return {
+    x: (line.lineStartX + line.lineEndX) / 2,
+    y: (line.lineStartY + line.lineEndY) / 2
+  };
+}
+
+function buildWashGuideFromDirection(
+  line: {
+    lineStartX: number;
+    lineStartY: number;
+    lineEndX: number;
+    lineEndY: number;
+  },
+  target: { x: number; y: number }
+) {
+  const center = getWashGuideCenter(line);
+  const defaultGuide = getWashDirectionGuide(
+    { x: line.lineStartX, y: line.lineStartY },
+    { x: line.lineEndX, y: line.lineEndY }
+  );
+  const guideTarget =
+    distance(center.x, center.y, target.x, target.y) >= 10
+      ? clampToAnnotationBounds(target)
+      : defaultGuide.end;
+
+  return {
+    start: center,
+    end: guideTarget
+  };
+}
+
+function isWashDirectionDraft(
+  draft: DraftFixture
+): draft is DraftFixture & {
+  mode: "washDirection";
+  lineStartX: number;
+  lineStartY: number;
+  lineEndX: number;
+  lineEndY: number;
+  label: string;
+} {
+  return (
+    draft.mode === "washDirection" &&
+    typeof draft.lineStartX === "number" &&
+    typeof draft.lineStartY === "number" &&
+    typeof draft.lineEndX === "number" &&
+    typeof draft.lineEndY === "number" &&
+    typeof draft.label === "string"
+  );
 }
 
 function toPercent(value: number) {
@@ -146,16 +262,20 @@ function getFixtureLineKind(fixture: string): FixtureLineKind | undefined {
     return "linear";
   }
 
+  if (fixture === "点光源") {
+    return "dot";
+  }
+
+  if (fixture === "像素灯") {
+    return "pixel";
+  }
+
   return undefined;
 }
 
 function getFixtureMarkMode(fixture: string): FixtureMarkMode {
   if (getFixtureLineKind(fixture)) {
     return "line";
-  }
-
-  if (fixture === "点光源") {
-    return "point";
   }
 
   if (fixture === "灯箱") {
@@ -176,8 +296,12 @@ function getFixtureGuide(fixture: string) {
     return `${fixture}：拖拽绘制线性灯走向`;
   }
 
-  if (fixture === "点光源") {
-    return "点光源：点击布置发光点位";
+  if (lineKind === "dot") {
+    return "点光源：拖拽绘制点光源排列";
+  }
+
+  if (lineKind === "pixel") {
+    return "像素灯：拖拽绘制像素点阵走向";
   }
 
   if (fixture === "灯箱") {
@@ -233,6 +357,25 @@ function normalizeFixtureArea(draft: DraftFixture) {
     width,
     height
   };
+}
+
+function snapFixtureDraftPoint(
+  draft: DraftFixture,
+  point: { x: number; y: number },
+  shouldSnap: boolean
+) {
+  if (!shouldSnap || (draft.mode !== "line" && draft.mode !== "direction")) {
+    return point;
+  }
+
+  const deltaX = point.x - draft.startX;
+  const deltaY = point.y - draft.startY;
+
+  return clampToAnnotationBounds(
+    Math.abs(deltaX) >= Math.abs(deltaY)
+      ? { x: point.x, y: draft.startY }
+      : { x: draft.startX, y: point.y }
+  );
 }
 
 function clampMoveDelta(
@@ -294,7 +437,23 @@ function moveAnnotation(
       x1: annotation.x1 + safeDeltaX,
       y1: annotation.y1 + safeDeltaY,
       x2: annotation.x2 + safeDeltaX,
-      y2: annotation.y2 + safeDeltaY
+      y2: annotation.y2 + safeDeltaY,
+      guideX1:
+        typeof annotation.guideX1 === "number"
+          ? annotation.guideX1 + safeDeltaX
+          : annotation.guideX1,
+      guideY1:
+        typeof annotation.guideY1 === "number"
+          ? annotation.guideY1 + safeDeltaY
+          : annotation.guideY1,
+      guideX2:
+        typeof annotation.guideX2 === "number"
+          ? annotation.guideX2 + safeDeltaX
+          : annotation.guideX2,
+      guideY2:
+        typeof annotation.guideY2 === "number"
+          ? annotation.guideY2 + safeDeltaY
+          : annotation.guideY2
     };
   }
 
@@ -358,10 +517,9 @@ function moveAnnotation(
   };
 }
 
-export function CanvasStage({
+function CanvasStageComponent({
   activeFixture,
   activeTool,
-  generationMessage,
   isGenerating,
   resultImageUrl,
   sourceImageUrl,
@@ -411,6 +569,10 @@ export function CanvasStage({
     deltaY: number;
   } | null>(null);
   const draftFrameRef = useRef<number | null>(null);
+  const frameResizeFrameRef = useRef<number | null>(null);
+  const svgBoundsRef = useRef<DOMRectReadOnly | null>(null);
+  const wheelFrameRef = useRef<number | null>(null);
+  const pendingWheelDeltaRef = useRef(0);
 
   function setDragStateImmediate(nextState: DragState | null) {
     dragStateRef.current = nextState;
@@ -485,11 +647,13 @@ export function CanvasStage({
       return;
     }
 
-    setCanvasView((current) => ({
-      ...current,
-      x: current.x + pending.x,
-      y: current.y + pending.y
-    }));
+    setCanvasView((current) =>
+      constrainCanvasView({
+        ...current,
+        x: current.x + pending.x,
+        y: current.y + pending.y
+      })
+    );
   }
 
   function flushPendingPanMove() {
@@ -575,13 +739,85 @@ export function CanvasStage({
     }
   }
 
+  function refreshSvgBounds() {
+    const bounds = svgRef.current?.getBoundingClientRect() ?? null;
+    svgBoundsRef.current =
+      bounds && bounds.width > 0 && bounds.height > 0 ? bounds : null;
+    return svgBoundsRef.current;
+  }
+
+  function getFittedCanvasSize() {
+    if (!imageSize || !frameSize || imageSize.width <= 0 || imageSize.height <= 0) {
+      return null;
+    }
+
+    const imageRatio = imageSize.width / imageSize.height;
+    const frameRatio = frameSize.width / frameSize.height;
+    const width =
+      frameRatio > imageRatio ? frameSize.height * imageRatio : frameSize.width;
+    const height =
+      frameRatio > imageRatio ? frameSize.height : frameSize.width / imageRatio;
+
+    return { width, height };
+  }
+
+  function constrainCanvasView(view: typeof canvasView) {
+    const scale = clamp(view.scale, 0.35, 6);
+
+    if (scale <= 1) {
+      return { scale, x: 0, y: 0 };
+    }
+
+    const fittedSize = getFittedCanvasSize();
+
+    if (!fittedSize || !frameSize) {
+      return { scale, x: view.x, y: view.y };
+    }
+
+    const maxX = Math.max(0, (fittedSize.width * scale - frameSize.width) / 2);
+    const maxY = Math.max(0, (fittedSize.height * scale - frameSize.height) / 2);
+
+    return {
+      scale,
+      x: clamp(view.x, -maxX, maxX),
+      y: clamp(view.y, -maxY, maxY)
+    };
+  }
+
+  function applyPendingWheelZoom() {
+    const pendingDelta = pendingWheelDeltaRef.current;
+    pendingWheelDeltaRef.current = 0;
+    wheelFrameRef.current = null;
+
+    if (pendingDelta === 0) {
+      return;
+    }
+
+    const zoomFactor = Math.exp(-pendingDelta * 0.001);
+
+    setCanvasView((current) => {
+      const nextView = constrainCanvasView({
+        ...current,
+        scale: Number((current.scale * zoomFactor).toFixed(4))
+      });
+
+      return nextView.scale === current.scale &&
+        nextView.x === current.x &&
+        nextView.y === current.y
+        ? current
+        : nextView;
+    });
+  }
+
   useEffect(() => {
     return () => {
       const frameIds = [
         compareFrameRef.current,
         panFrameRef.current,
         annotationMoveFrameRef.current,
-        draftFrameRef.current
+        draftFrameRef.current,
+        frameResizeFrameRef.current,
+        wheelFrameRef.current
       ];
 
       for (const frameId of frameIds) {
@@ -614,6 +850,14 @@ export function CanvasStage({
   ]);
 
   useEffect(() => {
+    const currentDraftFixture = draftFixtureRef.current;
+
+    if (activeTool !== "标注灯位" && currentDraftFixture && isWashDirectionDraft(currentDraftFixture)) {
+      setDraftFixtureImmediate(null);
+    }
+  }, [activeTool]);
+
+  useEffect(() => {
     setAnnotationItems([]);
     setSelectedAnnotationId(undefined);
     setDraftAreaImmediate(null);
@@ -643,10 +887,21 @@ export function CanvasStage({
     const observedFrame = frame;
 
     function updateFrameSize() {
-      const bounds = observedFrame.getBoundingClientRect();
-      setFrameSize({
-        width: bounds.width,
-        height: bounds.height
+      if (frameResizeFrameRef.current !== null) {
+        return;
+      }
+
+      frameResizeFrameRef.current = requestAnimationFrame(() => {
+        frameResizeFrameRef.current = null;
+        const bounds = observedFrame.getBoundingClientRect();
+        const width = Math.round(bounds.width);
+        const height = Math.round(bounds.height);
+
+        setFrameSize((current) =>
+          current?.width === width && current?.height === height
+            ? current
+            : { width, height }
+        );
       });
     }
 
@@ -654,7 +909,13 @@ export function CanvasStage({
     const resizeObserver = new ResizeObserver(updateFrameSize);
     resizeObserver.observe(observedFrame);
 
-    return () => resizeObserver.disconnect();
+    return () => {
+      resizeObserver.disconnect();
+      if (frameResizeFrameRef.current !== null) {
+        cancelAnimationFrame(frameResizeFrameRef.current);
+        frameResizeFrameRef.current = null;
+      }
+    };
   }, []);
 
   useEffect(() => {
@@ -688,20 +949,26 @@ export function CanvasStage({
 
     function handleWheel(event: WheelEvent) {
       event.preventDefault();
-      const zoomFactor = event.deltaY > 0 ? 0.88 : 1.12;
+      pendingWheelDeltaRef.current += event.deltaY;
 
-      setCanvasView((current) => {
-        const nextScale = clamp(current.scale * zoomFactor, 0.35, 6);
-        return nextScale === current.scale ? current : { ...current, scale: nextScale };
-      });
+      if (wheelFrameRef.current === null) {
+        wheelFrameRef.current = requestAnimationFrame(applyPendingWheelZoom);
+      }
     }
 
     frame.addEventListener("wheel", handleWheel, { passive: false });
-    return () => frame.removeEventListener("wheel", handleWheel);
+    return () => {
+      frame.removeEventListener("wheel", handleWheel);
+      if (wheelFrameRef.current !== null) {
+        cancelAnimationFrame(wheelFrameRef.current);
+        wheelFrameRef.current = null;
+      }
+      pendingWheelDeltaRef.current = 0;
+    };
   }, [hasSource]);
 
   function getSvgPoint(event: PointerEvent<SVGElement>) {
-    const bounds = svgRef.current?.getBoundingClientRect();
+    const bounds = svgBoundsRef.current ?? refreshSvgBounds();
 
     if (!bounds || bounds.width === 0 || bounds.height === 0) {
       return { x: 0, y: 0 };
@@ -711,6 +978,27 @@ export function CanvasStage({
       x: ((event.clientX - bounds.left) / bounds.width) * viewBox.width,
       y: ((event.clientY - bounds.top) / bounds.height) * viewBox.height
     });
+  }
+
+  function getLabelScaleX() {
+    if (!imageSize || imageSize.width <= 0 || imageSize.height <= 0) {
+      return 1;
+    }
+
+    const viewBoxRatio = viewBox.width / viewBox.height;
+    const imageRatio = imageSize.width / imageSize.height;
+
+    return clamp(viewBoxRatio / imageRatio, 0.55, 1.85);
+  }
+
+  function getLabelTransform(x: number, y: number) {
+    const scaleX = getLabelScaleX();
+
+    if (Math.abs(scaleX - 1) < 0.015) {
+      return undefined;
+    }
+
+    return `translate(${x} ${y}) scale(${scaleX} 1) translate(${-x} ${-y})`;
   }
 
   function resetCanvasView() {
@@ -723,18 +1011,97 @@ export function CanvasStage({
 
   function updateCanvasScale(nextScale: number) {
     setCanvasView((current) => {
-      const safeScale = clamp(nextScale, 0.35, 6);
-      return safeScale === current.scale ? current : { ...current, scale: safeScale };
+      const nextView = constrainCanvasView({ ...current, scale: nextScale });
+      return nextView.scale === current.scale &&
+        nextView.x === current.x &&
+        nextView.y === current.y
+        ? current
+        : nextView;
     });
+  }
+
+  function canStartCanvasPan(event: PointerEvent<Element>, allowPrimaryButton = false) {
+    return (
+      hasSource &&
+      canvasView.scale > 1 &&
+      (event.button === 1 || event.shiftKey || (allowPrimaryButton && event.button === 0))
+    );
+  }
+
+  function startCanvasPan(event: PointerEvent<Element>) {
+    event.preventDefault();
+    event.stopPropagation();
+    const captureTarget =
+      event.currentTarget instanceof SVGElement && svgRef.current
+        ? svgRef.current
+        : event.currentTarget;
+
+    setSelectedAnnotationId(undefined);
+    setDraftAreaImmediate(null);
+    setDraftFixtureImmediate(null);
+    setPanStateImmediate({
+      lastClientX: event.clientX,
+      lastClientY: event.clientY
+    });
+    captureTarget.setPointerCapture(event.pointerId);
+  }
+
+  function handleImageFramePointerDown(event: PointerEvent<HTMLDivElement>) {
+    if (showAnnotationLayer || !canStartCanvasPan(event, true)) {
+      return;
+    }
+
+    const target = event.target as HTMLElement | null;
+
+    if (target?.closest(".compare-line, button, input, select, textarea")) {
+      return;
+    }
+
+    startCanvasPan(event);
+  }
+
+  function handleImageFramePointerMove(event: PointerEvent<HTMLDivElement>) {
+    if (showAnnotationLayer) {
+      return;
+    }
+
+    const currentPanState = panStateRef.current;
+
+    if (!currentPanState) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    const deltaX = event.clientX - currentPanState.lastClientX;
+    const deltaY = event.clientY - currentPanState.lastClientY;
+    currentPanState.lastClientX = event.clientX;
+    currentPanState.lastClientY = event.clientY;
+    schedulePanMove(deltaX, deltaY);
+  }
+
+  function handleImageFramePointerUp(event: PointerEvent<HTMLDivElement>) {
+    if (showAnnotationLayer || !panStateRef.current) {
+      return;
+    }
+
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+
+    flushPendingPanMove();
+    setPanStateImmediate(null);
   }
 
   function handleSourceImageLoad(event: SyntheticEvent<HTMLImageElement>) {
     const image = event.currentTarget;
+    const width = image.naturalWidth || image.width;
+    const height = image.naturalHeight || image.height;
 
-    setImageSize({
-      width: image.naturalWidth || image.width,
-      height: image.naturalHeight || image.height
-    });
+    setImageSize((current) =>
+      current?.width === width && current?.height === height ? current : { width, height }
+    );
   }
 
   function updateCompareFromClientX(clientX: number) {
@@ -792,14 +1159,10 @@ export function CanvasStage({
   ) {
     event.preventDefault();
     event.stopPropagation();
+    refreshSvgBounds();
 
-    if ((event.shiftKey || event.button === 1) && canvasView.scale !== 1) {
-      setSelectedAnnotationId(undefined);
-      setPanStateImmediate({
-        lastClientX: event.clientX,
-        lastClientY: event.clientY
-      });
-      svgRef.current?.setPointerCapture(event.pointerId);
+    if ((event.shiftKey || event.button === 1) && canStartCanvasPan(event)) {
+      startCanvasPan(event);
       return;
     }
 
@@ -810,7 +1173,6 @@ export function CanvasStage({
   }
 
   function handleAnnotationPointerMove(event: PointerEvent<SVGSVGElement>) {
-    const point = getSvgPoint(event);
     const currentPanState = panStateRef.current;
     const currentDragState = dragStateRef.current;
     const currentDraftArea = draftAreaRef.current;
@@ -818,6 +1180,7 @@ export function CanvasStage({
 
     if (currentPanState) {
       event.preventDefault();
+      event.stopPropagation();
       const deltaX = event.clientX - currentPanState.lastClientX;
       const deltaY = event.clientY - currentPanState.lastClientY;
       currentPanState.lastClientX = event.clientX;
@@ -825,6 +1188,12 @@ export function CanvasStage({
       schedulePanMove(deltaX, deltaY);
       return;
     }
+
+    if (!currentDragState && !currentDraftArea && !currentDraftFixture) {
+      return;
+    }
+
+    const point = getSvgPoint(event);
 
     if (currentDragState) {
       event.preventDefault();
@@ -843,11 +1212,23 @@ export function CanvasStage({
     }
 
     if (currentDraftFixture) {
+      if (
+        isWashDirectionDraft(currentDraftFixture) &&
+        !currentDraftFixture.isSettingDirection
+      ) {
+        return;
+      }
+
       event.preventDefault();
+      const fixturePoint = snapFixtureDraftPoint(
+        currentDraftFixture,
+        point,
+        event.shiftKey
+      );
       scheduleDraftFixture({
         ...currentDraftFixture,
-        currentX: point.x,
-        currentY: point.y
+        currentX: fixturePoint.x,
+        currentY: fixturePoint.y
       });
     }
   }
@@ -867,13 +1248,17 @@ export function CanvasStage({
           currentY: releasePoint.y
         }
       : null;
+    const snappedFixtureReleasePoint = draftFixtureRef.current
+      ? snapFixtureDraftPoint(draftFixtureRef.current, releasePoint, event.shiftKey)
+      : null;
     const finalDraftFixture = draftFixtureRef.current
       ? {
           ...draftFixtureRef.current,
-          currentX: releasePoint.x,
-          currentY: releasePoint.y
+          currentX: snappedFixtureReleasePoint?.x ?? releasePoint.x,
+          currentY: snappedFixtureReleasePoint?.y ?? releasePoint.y
         }
       : null;
+    let nextDraftFixture: DraftFixture | null = null;
 
     if (finalDraftArea) {
       const area = normalizeArea(finalDraftArea);
@@ -921,6 +1306,37 @@ export function CanvasStage({
         ).length + 1;
       const id = `fixture-${Date.now()}`;
 
+      if (isWashDirectionDraft(finalDraftFixture)) {
+        if (finalDraftFixture.isSettingDirection) {
+          const guide = buildWashGuideFromDirection(finalDraftFixture, {
+            x: finalDraftFixture.currentX,
+            y: finalDraftFixture.currentY
+          });
+
+          setAnnotationItems((current) => [
+            ...current,
+            {
+              id,
+              type: "fixtureLine",
+              kind: "wash",
+              fixture: finalDraftFixture.fixture,
+              label: finalDraftFixture.label,
+              x1: finalDraftFixture.lineStartX,
+              y1: finalDraftFixture.lineStartY,
+              x2: finalDraftFixture.lineEndX,
+              y2: finalDraftFixture.lineEndY,
+              guideX1: guide.start.x,
+              guideY1: guide.start.y,
+              guideX2: guide.end.x,
+              guideY2: guide.end.y
+            }
+          ]);
+          setSelectedAnnotationId(id);
+        } else {
+          nextDraftFixture = finalDraftFixture;
+        }
+      }
+
       if (finalDraftFixture.mode === "line" && finalDraftFixture.kind && length >= 18) {
         const lineKind = finalDraftFixture.kind;
         const start = clampToAnnotationBounds({
@@ -932,21 +1348,41 @@ export function CanvasStage({
           y: finalDraftFixture.currentY
         });
 
-        setAnnotationItems((current) => [
-          ...current,
-          {
-            id,
-            type: "fixtureLine",
-            kind: lineKind,
+        if (lineKind === "wash") {
+          const defaultGuide = getWashDirectionGuide(start, end);
+          nextDraftFixture = {
+            mode: "washDirection",
+            kind: "wash",
             fixture: finalDraftFixture.fixture,
             label: `${finalDraftFixture.fixture} ${fixtureCount}`,
-            x1: start.x,
-            y1: start.y,
-            x2: end.x,
-            y2: end.y
-          }
-        ]);
-        setSelectedAnnotationId(id);
+            lineStartX: start.x,
+            lineStartY: start.y,
+            lineEndX: end.x,
+            lineEndY: end.y,
+            startX: defaultGuide.start.x,
+            startY: defaultGuide.start.y,
+            currentX: defaultGuide.end.x,
+            currentY: defaultGuide.end.y,
+            isSettingDirection: false
+          };
+          setSelectedAnnotationId(undefined);
+        } else {
+          setAnnotationItems((current) => [
+            ...current,
+            {
+              id,
+              type: "fixtureLine",
+              kind: lineKind,
+              fixture: finalDraftFixture.fixture,
+              label: `${finalDraftFixture.fixture} ${fixtureCount}`,
+              x1: start.x,
+              y1: start.y,
+              x2: end.x,
+              y2: end.y
+            }
+          ]);
+          setSelectedAnnotationId(id);
+        }
       }
 
       if (finalDraftFixture.mode === "point") {
@@ -1022,9 +1458,10 @@ export function CanvasStage({
     }
 
     setDraftAreaImmediate(null);
-    setDraftFixtureImmediate(null);
+    setDraftFixtureImmediate(nextDraftFixture);
     setDragStateImmediate(null);
     setPanStateImmediate(null);
+    svgBoundsRef.current = null;
   }
 
   function handleAnnotationCanvasPointerDown(
@@ -1034,16 +1471,25 @@ export function CanvasStage({
       return;
     }
 
-    event.preventDefault();
-    const point = getSvgPoint(event);
+    if (canStartCanvasPan(event)) {
+      startCanvasPan(event);
+      return;
+    }
 
-    if ((event.shiftKey || event.button === 1) && canvasView.scale !== 1) {
-      setSelectedAnnotationId(undefined);
-      setDraftAreaImmediate(null);
-      setDraftFixtureImmediate(null);
-      setPanStateImmediate({
-        lastClientX: event.clientX,
-        lastClientY: event.clientY
+    event.preventDefault();
+    refreshSvgBounds();
+    const point = getSvgPoint(event);
+    const pendingWashDirection = draftFixtureRef.current;
+
+    if (pendingWashDirection && isWashDirectionDraft(pendingWashDirection)) {
+      const guide = buildWashGuideFromDirection(pendingWashDirection, point);
+      setDraftFixtureImmediate({
+        ...pendingWashDirection,
+        isSettingDirection: true,
+        startX: guide.start.x,
+        startY: guide.start.y,
+        currentX: guide.end.x,
+        currentY: guide.end.y
       });
       svgRef.current?.setPointerCapture(event.pointerId);
       return;
@@ -1103,9 +1549,11 @@ export function CanvasStage({
 
   function renderAreaAnnotation(annotation: Extract<CanvasAnnotationItem, { type: "area" }>) {
     const isSelected = annotation.id === selectedAnnotationId;
-    const labelLength = labelWidth(annotation.label);
-    const labelX = clamp(annotation.x + 10, 10, viewBox.width - labelLength - 10);
-    const labelY = clamp(annotation.y - 32, 48, viewBox.height - 34);
+    const labelPosition = getEndpointLabelPosition(
+      annotation.label,
+      annotation.x + annotation.width,
+      annotation.y
+    );
     const groupClassName = isSelected
       ? `annotation-node annotation-area area-${annotation.kind} is-selected`
       : `annotation-node annotation-area area-${annotation.kind}`;
@@ -1120,11 +1568,11 @@ export function CanvasStage({
       >
         <rect
           className="annotation-area-hit"
-          x={annotation.x - 12}
-          y={annotation.y - 12}
-          width={annotation.width + 24}
-          height={annotation.height + 24}
-          rx="8"
+          x={annotation.x - 8}
+          y={annotation.y - 8}
+          width={annotation.width + 16}
+          height={annotation.height + 16}
+          rx="6"
         />
         <rect
           className="annotation-area-rect"
@@ -1138,42 +1586,39 @@ export function CanvasStage({
           <>
             <rect
               className="annotation-selection-outline"
-              x={annotation.x - 7}
-              y={annotation.y - 7}
-              width={annotation.width + 14}
-              height={annotation.height + 14}
-              rx="7"
+              x={annotation.x - 4}
+              y={annotation.y - 4}
+              width={annotation.width + 8}
+              height={annotation.height + 8}
+              rx="5"
             />
-            <circle className="annotation-handle" cx={annotation.x} cy={annotation.y} r="5" />
+            <circle className="annotation-handle" cx={annotation.x} cy={annotation.y} r="3.5" />
             <circle
               className="annotation-handle"
               cx={annotation.x + annotation.width}
               cy={annotation.y}
-              r="5"
+              r="3.5"
             />
             <circle
               className="annotation-handle"
               cx={annotation.x}
               cy={annotation.y + annotation.height}
-              r="5"
+              r="3.5"
             />
             <circle
               className="annotation-handle"
               cx={annotation.x + annotation.width}
               cy={annotation.y + annotation.height}
-              r="5"
+              r="3.5"
             />
           </>
         ) : null}
-        <rect
-          className="annotation-text-bg"
-          x={labelX}
-          y={labelY}
-          width={labelLength}
-          height="21"
-          rx="5"
-        />
-        <text className="annotation-svg-label" x={labelX + 8} y={labelY + 15}>
+        <text
+          className="annotation-svg-label"
+          transform={getLabelTransform(labelPosition.x, labelPosition.y)}
+          x={labelPosition.x}
+          y={labelPosition.y}
+        >
           {annotation.label}
         </text>
       </g>
@@ -1184,11 +1629,11 @@ export function CanvasStage({
     annotation: Extract<CanvasAnnotationItem, { type: "fixtureLine" }>
   ) {
     const isSelected = annotation.id === selectedAnnotationId;
-    const labelLength = labelWidth(annotation.label);
-    const midX = (annotation.x1 + annotation.x2) / 2;
-    const midY = (annotation.y1 + annotation.y2) / 2;
-    const labelX = clamp(midX + 10, 10, viewBox.width - labelLength - 10);
-    const labelY = clamp(midY - 34, 52, viewBox.height - 34);
+    const labelPosition = getEndpointLabelPosition(
+      annotation.label,
+      annotation.x2,
+      annotation.y2
+    );
     const groupClassName = isSelected
       ? `annotation-node annotation-fixture-line fixture-line-${annotation.kind} is-selected`
       : `annotation-node annotation-fixture-line fixture-line-${annotation.kind}`;
@@ -1211,30 +1656,91 @@ export function CanvasStage({
           x2={annotation.x2}
           y2={annotation.y2}
         />
-        <line
-          className="fixture-line-path"
-          x1={annotation.x1}
-          y1={annotation.y1}
-          x2={annotation.x2}
-          y2={annotation.y2}
-        />
+        {annotation.kind === "dot" || annotation.kind === "pixel" ? (
+          renderFixtureDotLine(
+            annotation.id,
+            annotation.kind,
+            { x: annotation.x1, y: annotation.y1 },
+            { x: annotation.x2, y: annotation.y2 }
+          )
+        ) : (
+          <line
+            className="fixture-line-path"
+            x1={annotation.x1}
+            y1={annotation.y1}
+            x2={annotation.x2}
+            y2={annotation.y2}
+          />
+        )}
+        {annotation.kind === "wash"
+          ? renderWashDirectionGuide(
+              typeof annotation.guideX1 === "number" &&
+                typeof annotation.guideY1 === "number" &&
+                typeof annotation.guideX2 === "number" &&
+                typeof annotation.guideY2 === "number"
+                ? {
+                    start: { x: annotation.guideX1, y: annotation.guideY1 },
+                    end: { x: annotation.guideX2, y: annotation.guideY2 }
+                  }
+                : getWashDirectionGuide(
+                    { x: annotation.x1, y: annotation.y1 },
+                    { x: annotation.x2, y: annotation.y2 }
+                  )
+            )
+          : null}
         {isSelected ? (
           <>
-            <circle className="annotation-handle" cx={annotation.x1} cy={annotation.y1} r="5" />
-            <circle className="annotation-handle" cx={annotation.x2} cy={annotation.y2} r="5" />
+            <circle className="annotation-handle" cx={annotation.x1} cy={annotation.y1} r="3.5" />
+            <circle className="annotation-handle" cx={annotation.x2} cy={annotation.y2} r="3.5" />
           </>
         ) : null}
-        <rect
-          className="annotation-text-bg"
-          x={labelX}
-          y={labelY}
-          width={labelLength}
-          height="21"
-          rx="5"
-        />
-        <text className="annotation-svg-label" x={labelX + 8} y={labelY + 15}>
+        <text
+          className="annotation-svg-label"
+          transform={getLabelTransform(labelPosition.x, labelPosition.y)}
+          x={labelPosition.x}
+          y={labelPosition.y}
+        >
           {annotation.label}
         </text>
+      </g>
+    );
+  }
+
+  function renderWashDirectionGuide(guide: {
+    start: { x: number; y: number };
+    end: { x: number; y: number };
+  }) {
+    return (
+      <line
+        className="fixture-wash-direction-guide"
+        markerEnd="url(#fixture-arrow)"
+        x1={guide.start.x}
+        y1={guide.start.y}
+        x2={guide.end.x}
+        y2={guide.end.y}
+      />
+    );
+  }
+
+  function renderFixtureDotLine(
+    id: string,
+    kind: Extract<FixtureLineKind, "dot" | "pixel">,
+    start: { x: number; y: number },
+    end: { x: number; y: number }
+  ) {
+    return (
+      <g className="fixture-dot-line">
+        {getLineSamplePoints(start, end, kind === "pixel" ? 18 : 24).map(
+          (point, index) => (
+            <circle
+              className="fixture-dot-line-dot"
+              cx={point.x}
+              cy={point.y}
+              key={`${id}-${index}`}
+              r="3"
+            />
+          )
+        )}
       </g>
     );
   }
@@ -1243,9 +1749,11 @@ export function CanvasStage({
     annotation: Extract<CanvasAnnotationItem, { type: "fixtureDirection" }>
   ) {
     const isSelected = annotation.id === selectedAnnotationId;
-    const labelLength = labelWidth(annotation.label);
-    const labelX = clamp(annotation.x + 15, 10, viewBox.width - labelLength - 10);
-    const labelY = clamp(annotation.y - 40, 56, viewBox.height - 34);
+    const labelPosition = getEndpointLabelPosition(
+      annotation.label,
+      annotation.targetX,
+      annotation.targetY
+    );
     const groupClassName = isSelected
       ? "annotation-node annotation-fixture-direction is-selected"
       : "annotation-node annotation-fixture-direction";
@@ -1260,7 +1768,7 @@ export function CanvasStage({
         style={getFixtureStyle(annotation.fixture)}
         onPointerDown={(event) => handleAnnotationPointerDown(annotation.id, event)}
       >
-        <circle className="fixture-point-hit" cx={annotation.x} cy={annotation.y} r="25" />
+        <circle className="fixture-point-hit" cx={annotation.x} cy={annotation.y} r="12" />
         <line
           className="fixture-direction-hit"
           x1={annotation.x}
@@ -1276,18 +1784,15 @@ export function CanvasStage({
           x2={annotation.targetX}
           y2={annotation.targetY}
         />
-        <circle className="fixture-point-pulse" cx={annotation.x} cy={annotation.y} r="15" />
-        <circle className="fixture-point" cx={annotation.x} cy={annotation.y} r="8" />
-        <circle className="fixture-direction-target" cx={annotation.targetX} cy={annotation.targetY} r="4" />
-        <rect
-          className="annotation-text-bg"
-          x={labelX}
-          y={labelY}
-          width={labelLength}
-          height="21"
-          rx="5"
-        />
-        <text className="annotation-svg-label" x={labelX + 8} y={labelY + 15}>
+        <circle className="fixture-point-pulse" cx={annotation.x} cy={annotation.y} r="6" />
+        <circle className="fixture-point" cx={annotation.x} cy={annotation.y} r="3.5" />
+        <circle className="fixture-direction-target" cx={annotation.targetX} cy={annotation.targetY} r="2" />
+        <text
+          className="annotation-svg-label"
+          transform={getLabelTransform(labelPosition.x, labelPosition.y)}
+          x={labelPosition.x}
+          y={labelPosition.y}
+        >
           {annotation.label}
         </text>
       </g>
@@ -1298,9 +1803,11 @@ export function CanvasStage({
     annotation: Extract<CanvasAnnotationItem, { type: "fixturePoint" }>
   ) {
     const isSelected = annotation.id === selectedAnnotationId;
-    const labelLength = labelWidth(annotation.label);
-    const labelX = clamp(annotation.x + 14, 10, viewBox.width - labelLength - 10);
-    const labelY = clamp(annotation.y - 34, 52, viewBox.height - 34);
+    const labelPosition = getEndpointLabelPosition(
+      annotation.label,
+      annotation.x,
+      annotation.y
+    );
     const groupClassName = isSelected
       ? "annotation-node annotation-fixture-point is-selected"
       : "annotation-node annotation-fixture-point";
@@ -1315,18 +1822,15 @@ export function CanvasStage({
         style={getFixtureStyle(annotation.fixture)}
         onPointerDown={(event) => handleAnnotationPointerDown(annotation.id, event)}
       >
-        <circle className="fixture-point-hit" cx={annotation.x} cy={annotation.y} r="25" />
-        <circle className="fixture-point-pulse" cx={annotation.x} cy={annotation.y} r="14" />
-        <circle className="fixture-point" cx={annotation.x} cy={annotation.y} r="7" />
-        <rect
-          className="annotation-text-bg"
-          x={labelX}
-          y={labelY}
-          width={labelLength}
-          height="21"
-          rx="5"
-        />
-        <text className="annotation-svg-label" x={labelX + 8} y={labelY + 15}>
+        <circle className="fixture-point-hit" cx={annotation.x} cy={annotation.y} r="12" />
+        <circle className="fixture-point-pulse" cx={annotation.x} cy={annotation.y} r="6" />
+        <circle className="fixture-point" cx={annotation.x} cy={annotation.y} r="3.5" />
+        <text
+          className="annotation-svg-label"
+          transform={getLabelTransform(labelPosition.x, labelPosition.y)}
+          x={labelPosition.x}
+          y={labelPosition.y}
+        >
           {annotation.label}
         </text>
       </g>
@@ -1337,9 +1841,11 @@ export function CanvasStage({
     annotation: Extract<CanvasAnnotationItem, { type: "fixtureArea" }>
   ) {
     const isSelected = annotation.id === selectedAnnotationId;
-    const labelLength = labelWidth(annotation.label);
-    const labelX = clamp(annotation.x + 10, 10, viewBox.width - labelLength - 10);
-    const labelY = clamp(annotation.y - 32, 48, viewBox.height - 34);
+    const labelPosition = getEndpointLabelPosition(
+      annotation.label,
+      annotation.x + annotation.width,
+      annotation.y
+    );
     const groupClassName = isSelected
       ? "annotation-node annotation-fixture-area is-selected"
       : "annotation-node annotation-fixture-area";
@@ -1356,11 +1862,11 @@ export function CanvasStage({
       >
         <rect
           className="annotation-area-hit"
-          x={annotation.x - 12}
-          y={annotation.y - 12}
-          width={annotation.width + 24}
-          height={annotation.height + 24}
-          rx="8"
+          x={annotation.x - 8}
+          y={annotation.y - 8}
+          width={annotation.width + 16}
+          height={annotation.height + 16}
+          rx="6"
         />
         <rect
           className="annotation-area-rect"
@@ -1374,42 +1880,39 @@ export function CanvasStage({
           <>
             <rect
               className="annotation-selection-outline"
-              x={annotation.x - 7}
-              y={annotation.y - 7}
-              width={annotation.width + 14}
-              height={annotation.height + 14}
-              rx="7"
+              x={annotation.x - 4}
+              y={annotation.y - 4}
+              width={annotation.width + 8}
+              height={annotation.height + 8}
+              rx="5"
             />
-            <circle className="annotation-handle" cx={annotation.x} cy={annotation.y} r="5" />
+            <circle className="annotation-handle" cx={annotation.x} cy={annotation.y} r="3.5" />
             <circle
               className="annotation-handle"
               cx={annotation.x + annotation.width}
               cy={annotation.y}
-              r="5"
+              r="3.5"
             />
             <circle
               className="annotation-handle"
               cx={annotation.x}
               cy={annotation.y + annotation.height}
-              r="5"
+              r="3.5"
             />
             <circle
               className="annotation-handle"
               cx={annotation.x + annotation.width}
               cy={annotation.y + annotation.height}
-              r="5"
+              r="3.5"
             />
           </>
         ) : null}
-        <rect
-          className="annotation-text-bg"
-          x={labelX}
-          y={labelY}
-          width={labelLength}
-          height="21"
-          rx="5"
-        />
-        <text className="annotation-svg-label" x={labelX + 8} y={labelY + 15}>
+        <text
+          className="annotation-svg-label"
+          transform={getLabelTransform(labelPosition.x, labelPosition.y)}
+          x={labelPosition.x}
+          y={labelPosition.y}
+        >
           {annotation.label}
         </text>
       </g>
@@ -1441,19 +1944,62 @@ export function CanvasStage({
       return null;
     }
 
+    if (isWashDirectionDraft(draftFixture)) {
+      const guide = buildWashGuideFromDirection(draftFixture, {
+        x: draftFixture.currentX,
+        y: draftFixture.currentY
+      });
+
+      return (
+        <g
+          className="annotation-draft annotation-fixture-line fixture-line-wash is-setting-direction"
+          style={getFixtureStyle(draftFixture.fixture)}
+        >
+          <line
+            className="fixture-line-path"
+            x1={draftFixture.lineStartX}
+            y1={draftFixture.lineStartY}
+            x2={draftFixture.lineEndX}
+            y2={draftFixture.lineEndY}
+          />
+          {renderWashDirectionGuide(guide)}
+        </g>
+      );
+    }
+
     if (draftFixture.mode === "line" && draftFixture.kind) {
+      const isDotLine = draftFixture.kind === "dot" || draftFixture.kind === "pixel";
+
       return (
         <g
           className={`annotation-draft annotation-fixture-line fixture-line-${draftFixture.kind}`}
           style={getFixtureStyle(draftFixture.fixture)}
         >
-          <line
-            className="fixture-line-path"
-            x1={draftFixture.startX}
-            y1={draftFixture.startY}
-            x2={draftFixture.currentX}
-            y2={draftFixture.currentY}
-          />
+          {isDotLine ? (
+            <g className="fixture-dot-line">
+              {getLineSamplePoints(
+                { x: draftFixture.startX, y: draftFixture.startY },
+                { x: draftFixture.currentX, y: draftFixture.currentY },
+                draftFixture.kind === "pixel" ? 18 : 24
+              ).map((point, index) => (
+                <circle
+                  className="fixture-dot-line-dot"
+                  cx={point.x}
+                  cy={point.y}
+                  key={`${draftFixture.fixture}-${index}`}
+                  r="3"
+                />
+              ))}
+            </g>
+          ) : (
+            <line
+              className="fixture-line-path"
+              x1={draftFixture.startX}
+              y1={draftFixture.startY}
+              x2={draftFixture.currentX}
+              y2={draftFixture.currentY}
+            />
+          )}
         </g>
       );
     }
@@ -1488,9 +2034,9 @@ export function CanvasStage({
             className="fixture-point-pulse"
             cx={draftFixture.startX}
             cy={draftFixture.startY}
-            r="13"
+            r="8"
           />
-          <circle className="fixture-point" cx={draftFixture.startX} cy={draftFixture.startY} r="7" />
+          <circle className="fixture-point" cx={draftFixture.startX} cy={draftFixture.startY} r="3.5" />
         </g>
       );
     }
@@ -1508,7 +2054,7 @@ export function CanvasStage({
           x2={draftFixture.currentX}
           y2={draftFixture.currentY}
         />
-        <circle className="fixture-point" cx={draftFixture.startX} cy={draftFixture.startY} r="8" />
+        <circle className="fixture-point" cx={draftFixture.startX} cy={draftFixture.startY} r="3.5" />
       </g>
     );
   }
@@ -1521,7 +2067,17 @@ export function CanvasStage({
   const annotationLayerClassName = [
     "annotation-layer",
     activeTool === "标注灯位" ? "is-marking" : "",
-    isAreaTool(activeTool) ? "is-box-selecting" : ""
+    isAreaTool(activeTool) ? "is-box-selecting" : "",
+    canvasView.scale > 1 ? "is-pannable" : "",
+    panState ? "is-panning" : ""
+  ]
+    .filter(Boolean)
+    .join(" ");
+  const imageFrameClassName = [
+    "image-frame",
+    hasSource ? "" : "is-empty",
+    hasSource && canvasView.scale > 1 ? "is-pannable" : "",
+    panState ? "is-panning" : ""
   ]
     .filter(Boolean)
     .join(" ");
@@ -1566,7 +2122,6 @@ export function CanvasStage({
                 value={activeFixture}
                 onChange={(event) => {
                   onFixtureChange(event.currentTarget.value);
-                  onToolChange("标注灯位");
                 }}
               >
                 {fixtureGroups.map((group) => (
@@ -1586,7 +2141,7 @@ export function CanvasStage({
                 className={tool === activeTool ? "tool-button is-active" : "tool-button"}
                 key={tool}
                 type="button"
-                onClick={() => onToolChange(tool)}
+                onClick={() => onToolChange(activeTool === tool ? "查看" : tool)}
                 title={tool}
                 aria-label={tool}
               >
@@ -1679,8 +2234,12 @@ export function CanvasStage({
         </div>
 
         <div
-          className={hasSource ? "image-frame" : "image-frame is-empty"}
+          className={imageFrameClassName}
           ref={imageFrameRef}
+          onPointerCancel={handleImageFramePointerUp}
+          onPointerDown={handleImageFramePointerDown}
+          onPointerMove={handleImageFramePointerMove}
+          onPointerUp={handleImageFramePointerUp}
         >
           {hasSource ? (
             <>
@@ -1755,14 +2314,14 @@ export function CanvasStage({
                     <defs>
                       <marker
                         id="fixture-arrow"
-                        markerHeight="6"
-                        markerWidth="6"
+                        markerHeight="3"
+                        markerWidth="3"
                         orient="auto"
-                        refX="5"
-                        refY="3"
-                        viewBox="0 0 6 6"
+                        refX="2.65"
+                        refY="1.5"
+                        viewBox="0 0 3 3"
                       >
-                        <path className="fixture-arrow-head" d="M0 0 L6 3 L0 6 Z" />
+                        <path className="fixture-arrow-head" d="M0 0 L3 1.5 L0 3 Z" />
                       </marker>
                     </defs>
                     {annotationItems.map(renderAnnotation)}
@@ -1792,18 +2351,7 @@ export function CanvasStage({
               </div>
 
               {isGenerating ? (
-                <div className="canvas-generating-overlay" role="status">
-                  <div className="canvas-generating-card">
-                    <span className="generating-orb" aria-hidden="true" />
-                    <div>
-                      <strong>图片正在生成中</strong>
-                      <p>{generationMessage || "正在解析画面、匹配灯位并生成夜景效果。"}</p>
-                    </div>
-                    <div className="generation-progress" aria-hidden="true">
-                      <span />
-                    </div>
-                  </div>
-                </div>
+                <GeneratingNightOverlay />
               ) : null}
 
             </>
@@ -1845,9 +2393,11 @@ export function CanvasStage({
         {hasSource && !hasResult ? (
           <div className="result-pending" role="status">
             <Lightbulb size={15} aria-hidden="true" />
-            {activeTool === "标注灯位"
+            {draftFixture && isWashDirectionDraft(draftFixture)
+              ? "洗墙灯：拖拽确定洗墙方向"
+              : activeTool === "标注灯位"
               ? getFixtureGuide(activeFixture)
-              : "原图已就绪，滚轮缩放，按住 Shift 可拖动画布"}
+              : "原图已就绪，点击“标注灯位”后可在图上标注"}
           </div>
         ) : null}
 
@@ -1867,3 +2417,5 @@ export function CanvasStage({
     </main>
   );
 }
+
+export const CanvasStage = memo(CanvasStageComponent);

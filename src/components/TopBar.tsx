@@ -8,7 +8,7 @@ import {
   Phone,
   User
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import type { UserProfile } from "../auth/userProfile";
 
 interface TopBarProps {
@@ -33,7 +33,7 @@ function formatDateTime(dateTime: string) {
   }
 }
 
-export function TopBar({
+function TopBarComponent({
   userProfile,
   onBrandClick,
   onLogout,
@@ -82,10 +82,10 @@ export function TopBar({
     return () => window.clearTimeout(timer);
   }, [lastRechargeAmount]);
 
-  function handleRecharge(amount: number) {
+  const handleRecharge = useCallback((amount: number) => {
     onRechargeCredits(amount);
     setLastRechargeAmount(amount);
-  }
+  }, [onRechargeCredits]);
 
   return (
     <header className="topbar">
@@ -241,3 +241,5 @@ export function TopBar({
     </header>
   );
 }
+
+export const TopBar = memo(TopBarComponent);

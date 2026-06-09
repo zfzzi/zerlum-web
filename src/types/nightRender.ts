@@ -81,6 +81,7 @@ export type CanvasLock =
   | "灯具";
 
 export type CanvasTool =
+  | "查看"
   | "局部重绘"
   | "遮罩选择"
   | "标注灯位"
@@ -107,13 +108,17 @@ export type CanvasAnnotationSnapshot =
   | {
       id: string;
       type: "fixtureLine";
-      kind: "wash" | "linear";
+      kind: "wash" | "linear" | "dot" | "pixel";
       fixture: string;
       label: string;
       x1: number;
       y1: number;
       x2: number;
       y2: number;
+      guideX1?: number;
+      guideY1?: number;
+      guideX2?: number;
+      guideY2?: number;
     }
   | {
       id: string;
