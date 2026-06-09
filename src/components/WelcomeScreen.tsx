@@ -4,10 +4,17 @@ interface WelcomeScreenProps {
   onContinue: () => void;
 }
 
+const loginLabel = "Log in";
+const loginLetters = Array.from(loginLabel);
+
 export function WelcomeScreen({ onContinue }: WelcomeScreenProps) {
   return (
     <main className="welcome-screen">
-      <InteractiveNebulaShader className="welcome-shader" />
+      <InteractiveNebulaShader
+        className="welcome-shader"
+        maxPixelRatio={0.75}
+        targetFps={16}
+      />
 
       <section className="welcome-frame" aria-labelledby="welcome-title">
         <div className="welcome-brand">
@@ -24,8 +31,23 @@ export function WelcomeScreen({ onContinue }: WelcomeScreenProps) {
           </p>
         </div>
 
-        <button className="welcome-login-button" type="button" onClick={onContinue}>
-          <span>Log in</span>
+        <button
+          aria-label={loginLabel}
+          className="welcome-login-button"
+          type="button"
+          onClick={onContinue}
+        >
+          <span className="welcome-login-text" aria-hidden="true">
+            {loginLetters.map((letter, index) => (
+              <span
+                className="welcome-login-letter"
+                key={`${letter}-${index}`}
+                style={{ animationDelay: `${index * 80}ms` }}
+              >
+                {letter === " " ? "\u00a0" : letter}
+              </span>
+            ))}
+          </span>
         </button>
       </section>
     </main>

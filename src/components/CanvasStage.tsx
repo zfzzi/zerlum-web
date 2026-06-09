@@ -50,6 +50,13 @@ const viewBox = {
   height: 560
 };
 
+const annotationBounds = {
+  minX: 0,
+  minY: 0,
+  maxX: viewBox.width,
+  maxY: viewBox.height
+};
+
 type AreaTool = Extract<CanvasTool, "局部重绘" | "遮罩选择" | "禁止修改">;
 type AreaKind = "repaint" | "mask" | "avoid";
 type FixtureLineKind = "wash" | "linear";
@@ -77,6 +84,17 @@ interface DraftFixture {
   currentY: number;
 }
 
+interface DragState {
+  id: string;
+  lastX: number;
+  lastY: number;
+}
+
+interface PanState {
+  lastClientX: number;
+  lastClientY: number;
+}
+
 const areaToolMeta: Record<AreaTool, { kind: AreaKind; label: string }> = {
   局部重绘: {
     kind: "repaint",
@@ -94,6 +112,13 @@ const areaToolMeta: Record<AreaTool, { kind: AreaKind; label: string }> = {
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
+}
+
+function clampToAnnotationBounds(point: { x: number; y: number }) {
+  return {
+    x: clamp(point.x, annotationBounds.minX, annotationBounds.maxX),
+    y: clamp(point.y, annotationBounds.minY, annotationBounds.maxY)
+  };
 }
 
 function distance(x1: number, y1: number, x2: number, y2: number) {
@@ -173,31 +198,51 @@ function getFixtureStyle(fixture: string) {
 }
 
 function normalizeArea(draft: DraftArea) {
-  const x = Math.min(draft.startX, draft.currentX);
-  const y = Math.min(draft.startY, draft.currentY);
-  const width = Math.abs(draft.currentX - draft.startX);
-  const height = Math.abs(draft.currentY - draft.startY);
+  const start = clampToAnnotationBounds({ x: draft.startX, y: draft.startY });
+  const current = clampToAnnotationBounds({
+    x: draft.currentX,
+    y: draft.currentY
+  });
+  const x = Math.min(start.x, current.x);
+  const y = Math.min(start.y, current.y);
+  const width = Math.abs(current.x - start.x);
+  const height = Math.abs(current.y - start.y);
 
   return {
-    x: clamp(x, 8, viewBox.width - 8),
-    y: clamp(y, 56, viewBox.height - 8),
+    x,
+    y,
     width,
     height
   };
 }
 
 function normalizeFixtureArea(draft: DraftFixture) {
-  const x = Math.min(draft.startX, draft.currentX);
-  const y = Math.min(draft.startY, draft.currentY);
-  const width = Math.abs(draft.currentX - draft.startX);
-  const height = Math.abs(draft.currentY - draft.startY);
+  const start = clampToAnnotationBounds({ x: draft.startX, y: draft.startY });
+  const current = clampToAnnotationBounds({
+    x: draft.currentX,
+    y: draft.currentY
+  });
+  const x = Math.min(start.x, current.x);
+  const y = Math.min(start.y, current.y);
+  const width = Math.abs(current.x - start.x);
+  const height = Math.abs(current.y - start.y);
 
   return {
-    x: clamp(x, 8, viewBox.width - 8),
-    y: clamp(y, 56, viewBox.height - 8),
+    x,
+    y,
     width,
     height
   };
+}
+
+function clampMoveDelta(
+  delta: number,
+  minPosition: number,
+  maxPosition: number,
+  minBound: number,
+  maxBound: number
+) {
+  return clamp(delta, minBound - minPosition, maxBound - maxPosition);
 }
 
 function moveAnnotation(
@@ -206,45 +251,110 @@ function moveAnnotation(
   deltaY: number
 ): CanvasAnnotationItem {
   if (annotation.type === "area") {
+    const safeDeltaX = clampMoveDelta(
+      deltaX,
+      annotation.x,
+      annotation.x + annotation.width,
+      annotationBounds.minX,
+      annotationBounds.maxX
+    );
+    const safeDeltaY = clampMoveDelta(
+      deltaY,
+      annotation.y,
+      annotation.y + annotation.height,
+      annotationBounds.minY,
+      annotationBounds.maxY
+    );
+
     return {
       ...annotation,
-      x: clamp(annotation.x + deltaX, 8, viewBox.width - annotation.width - 8),
-      y: clamp(annotation.y + deltaY, 56, viewBox.height - annotation.height - 8)
+      x: annotation.x + safeDeltaX,
+      y: annotation.y + safeDeltaY
     };
   }
 
   if (annotation.type === "fixtureLine") {
+    const safeDeltaX = clampMoveDelta(
+      deltaX,
+      Math.min(annotation.x1, annotation.x2),
+      Math.max(annotation.x1, annotation.x2),
+      annotationBounds.minX,
+      annotationBounds.maxX
+    );
+    const safeDeltaY = clampMoveDelta(
+      deltaY,
+      Math.min(annotation.y1, annotation.y2),
+      Math.max(annotation.y1, annotation.y2),
+      annotationBounds.minY,
+      annotationBounds.maxY
+    );
+
     return {
       ...annotation,
-      x1: clamp(annotation.x1 + deltaX, 24, viewBox.width - 24),
-      y1: clamp(annotation.y1 + deltaY, 72, viewBox.height - 34),
-      x2: clamp(annotation.x2 + deltaX, 24, viewBox.width - 24),
-      y2: clamp(annotation.y2 + deltaY, 72, viewBox.height - 34)
+      x1: annotation.x1 + safeDeltaX,
+      y1: annotation.y1 + safeDeltaY,
+      x2: annotation.x2 + safeDeltaX,
+      y2: annotation.y2 + safeDeltaY
     };
   }
 
   if (annotation.type === "fixturePoint") {
+    const point = clampToAnnotationBounds({
+      x: annotation.x + deltaX,
+      y: annotation.y + deltaY
+    });
+
     return {
       ...annotation,
-      x: clamp(annotation.x + deltaX, 24, viewBox.width - 24),
-      y: clamp(annotation.y + deltaY, 72, viewBox.height - 34)
+      x: point.x,
+      y: point.y
     };
   }
 
   if (annotation.type === "fixtureArea") {
+    const safeDeltaX = clampMoveDelta(
+      deltaX,
+      annotation.x,
+      annotation.x + annotation.width,
+      annotationBounds.minX,
+      annotationBounds.maxX
+    );
+    const safeDeltaY = clampMoveDelta(
+      deltaY,
+      annotation.y,
+      annotation.y + annotation.height,
+      annotationBounds.minY,
+      annotationBounds.maxY
+    );
+
     return {
       ...annotation,
-      x: clamp(annotation.x + deltaX, 8, viewBox.width - annotation.width - 8),
-      y: clamp(annotation.y + deltaY, 56, viewBox.height - annotation.height - 8)
+      x: annotation.x + safeDeltaX,
+      y: annotation.y + safeDeltaY
     };
   }
 
+  const safeDeltaX = clampMoveDelta(
+    deltaX,
+    Math.min(annotation.x, annotation.targetX),
+    Math.max(annotation.x, annotation.targetX),
+    annotationBounds.minX,
+    annotationBounds.maxX
+  );
+  const safeDeltaY = clampMoveDelta(
+    deltaY,
+    Math.min(annotation.y, annotation.targetY),
+    Math.max(annotation.y, annotation.targetY),
+    annotationBounds.minY,
+    annotationBounds.maxY
+  );
+
   return {
     ...annotation,
-    x: clamp(annotation.x + deltaX, 24, viewBox.width - 24),
-    y: clamp(annotation.y + deltaY, 72, viewBox.height - 34),
-    targetX: clamp(annotation.targetX + deltaX, 24, viewBox.width - 24),
-    targetY: clamp(annotation.targetY + deltaY, 72, viewBox.height - 34)
+    x: annotation.x + safeDeltaX,
+    y: annotation.y + safeDeltaY,
+    targetX: annotation.targetX + safeDeltaX,
+    targetY: annotation.targetY + safeDeltaY
   };
 }
 
@@ -271,15 +381,8 @@ export function CanvasStage({
   const [isCompareDragging, setIsCompareDragging] = useState(false);
   const [compare, setCompare] = useState(48);
   const [resultViewMode, setResultViewMode] = useState<ResultViewMode>("generated");
-  const [dragState, setDragState] = useState<{
-    id: string;
-    lastX: number;
-    lastY: number;
-  } | null>(null);
-  const [panState, setPanState] = useState<{
-    lastClientX: number;
-    lastClientY: number;
-  } | null>(null);
+  const [dragState, setDragState] = useState<DragState | null>(null);
+  const [panState, setPanState] = useState<PanState | null>(null);
   const [canvasView, setCanvasView] = useState({
     scale: 1,
     x: 0,
@@ -293,6 +396,201 @@ export function CanvasStage({
   );
   const [draftArea, setDraftArea] = useState<DraftArea | null>(null);
   const [draftFixture, setDraftFixture] = useState<DraftFixture | null>(null);
+  const compareFrameRef = useRef<number | null>(null);
+  const pendingCompareClientXRef = useRef<number | null>(null);
+  const panStateRef = useRef<PanState | null>(null);
+  const dragStateRef = useRef<DragState | null>(null);
+  const draftAreaRef = useRef<DraftArea | null>(null);
+  const draftFixtureRef = useRef<DraftFixture | null>(null);
+  const panFrameRef = useRef<number | null>(null);
+  const pendingPanDeltaRef = useRef({ x: 0, y: 0 });
+  const annotationMoveFrameRef = useRef<number | null>(null);
+  const pendingAnnotationMoveRef = useRef<{
+    id: string;
+    deltaX: number;
+    deltaY: number;
+  } | null>(null);
+  const draftFrameRef = useRef<number | null>(null);
+
+  function setDragStateImmediate(nextState: DragState | null) {
+    dragStateRef.current = nextState;
+    setDragState(nextState);
+  }
+
+  function setPanStateImmediate(nextState: PanState | null) {
+    panStateRef.current = nextState;
+    setPanState(nextState);
+  }
+
+  function setDraftAreaImmediate(nextDraft: DraftArea | null) {
+    draftAreaRef.current = nextDraft;
+    setDraftArea(nextDraft);
+  }
+
+  function setDraftFixtureImmediate(nextDraft: DraftFixture | null) {
+    draftFixtureRef.current = nextDraft;
+    setDraftFixture(nextDraft);
+  }
+
+  function applyPendingCompare() {
+    const clientX = pendingCompareClientXRef.current;
+    pendingCompareClientXRef.current = null;
+    compareFrameRef.current = null;
+
+    if (clientX === null) {
+      return;
+    }
+
+    const bounds = viewportContentRef.current?.getBoundingClientRect();
+
+    if (!bounds || bounds.width === 0) {
+      return;
+    }
+
+    const nextCompare = Math.round(
+      clamp(((clientX - bounds.left) / bounds.width) * 100, 0, 100)
+    );
+    setCompare((current) => (current === nextCompare ? current : nextCompare));
+  }
+
+  function flushPendingCompare() {
+    if (compareFrameRef.current !== null) {
+      cancelAnimationFrame(compareFrameRef.current);
+    }
+
+    applyPendingCompare();
+  }
+
+  function schedulePanMove(deltaX: number, deltaY: number) {
+    if (Math.abs(deltaX) < 0.5 && Math.abs(deltaY) < 0.5) {
+      return;
+    }
+
+    pendingPanDeltaRef.current.x += deltaX;
+    pendingPanDeltaRef.current.y += deltaY;
+
+    if (panFrameRef.current !== null) {
+      return;
+    }
+
+    panFrameRef.current = requestAnimationFrame(applyPendingPanMove);
+  }
+
+  function applyPendingPanMove() {
+    panFrameRef.current = null;
+    const pending = pendingPanDeltaRef.current;
+    pendingPanDeltaRef.current = { x: 0, y: 0 };
+
+    if (pending.x === 0 && pending.y === 0) {
+      return;
+    }
+
+    setCanvasView((current) => ({
+      ...current,
+      x: current.x + pending.x,
+      y: current.y + pending.y
+    }));
+  }
+
+  function flushPendingPanMove() {
+    if (panFrameRef.current !== null) {
+      cancelAnimationFrame(panFrameRef.current);
+    }
+
+    applyPendingPanMove();
+  }
+
+  function applyPendingAnnotationMove() {
+    const pending = pendingAnnotationMoveRef.current;
+    pendingAnnotationMoveRef.current = null;
+    annotationMoveFrameRef.current = null;
+
+    if (!pending) {
+      return;
+    }
+
+    setAnnotationItems((current) =>
+      current.map((annotation) =>
+        annotation.id === pending.id
+          ? moveAnnotation(annotation, pending.deltaX, pending.deltaY)
+          : annotation
+      )
+    );
+  }
+
+  function flushPendingAnnotationMove() {
+    if (annotationMoveFrameRef.current !== null) {
+      cancelAnimationFrame(annotationMoveFrameRef.current);
+    }
+
+    applyPendingAnnotationMove();
+  }
+
+  function scheduleAnnotationMove(id: string, deltaX: number, deltaY: number) {
+    if (Math.abs(deltaX) < 0.25 && Math.abs(deltaY) < 0.25) {
+      return;
+    }
+
+    const pending = pendingAnnotationMoveRef.current;
+
+    if (pending && pending.id !== id) {
+      flushPendingAnnotationMove();
+    }
+
+    const nextPending = pendingAnnotationMoveRef.current;
+
+    if (nextPending) {
+      nextPending.deltaX += deltaX;
+      nextPending.deltaY += deltaY;
+    } else {
+      pendingAnnotationMoveRef.current = { id, deltaX, deltaY };
+    }
+
+    if (annotationMoveFrameRef.current !== null) {
+      return;
+    }
+
+    annotationMoveFrameRef.current = requestAnimationFrame(applyPendingAnnotationMove);
+  }
+
+  function applyPendingDraft() {
+    draftFrameRef.current = null;
+    setDraftArea(draftAreaRef.current);
+    setDraftFixture(draftFixtureRef.current);
+  }
+
+  function scheduleDraftArea(nextDraft: DraftArea) {
+    draftAreaRef.current = nextDraft;
+
+    if (draftFrameRef.current === null) {
+      draftFrameRef.current = requestAnimationFrame(applyPendingDraft);
+    }
+  }
+
+  function scheduleDraftFixture(nextDraft: DraftFixture) {
+    draftFixtureRef.current = nextDraft;
+
+    if (draftFrameRef.current === null) {
+      draftFrameRef.current = requestAnimationFrame(applyPendingDraft);
+    }
+  }
+
+  useEffect(() => {
+    return () => {
+      const frameIds = [
+        compareFrameRef.current,
+        panFrameRef.current,
+        annotationMoveFrameRef.current,
+        draftFrameRef.current
+      ];
+
+      for (const frameId of frameIds) {
+        if (frameId !== null) {
+          cancelAnimationFrame(frameId);
+        }
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (dragState || draftArea || draftFixture || panState) {
@@ -318,10 +616,10 @@ export function CanvasStage({
   useEffect(() => {
     setAnnotationItems([]);
     setSelectedAnnotationId(undefined);
-    setDraftArea(null);
-    setDraftFixture(null);
-    setDragState(null);
-    setPanState(null);
+    setDraftAreaImmediate(null);
+    setDraftFixtureImmediate(null);
+    setDragStateImmediate(null);
+    setPanStateImmediate(null);
     setCompare(48);
     setResultViewMode("generated");
     setImageSize(null);
@@ -392,10 +690,10 @@ export function CanvasStage({
       event.preventDefault();
       const zoomFactor = event.deltaY > 0 ? 0.88 : 1.12;
 
-      setCanvasView((current) => ({
-        ...current,
-        scale: clamp(current.scale * zoomFactor, 0.35, 6)
-      }));
+      setCanvasView((current) => {
+        const nextScale = clamp(current.scale * zoomFactor, 0.35, 6);
+        return nextScale === current.scale ? current : { ...current, scale: nextScale };
+      });
     }
 
     frame.addEventListener("wheel", handleWheel, { passive: false });
@@ -409,10 +707,10 @@ export function CanvasStage({
       return { x: 0, y: 0 };
     }
 
-    return {
+    return clampToAnnotationBounds({
       x: ((event.clientX - bounds.left) / bounds.width) * viewBox.width,
       y: ((event.clientY - bounds.top) / bounds.height) * viewBox.height
-    };
+    });
   }
 
   function resetCanvasView() {
@@ -424,10 +722,10 @@ export function CanvasStage({
   }
 
   function updateCanvasScale(nextScale: number) {
-    setCanvasView((current) => ({
-      ...current,
-      scale: clamp(nextScale, 0.35, 6)
-    }));
+    setCanvasView((current) => {
+      const safeScale = clamp(nextScale, 0.35, 6);
+      return safeScale === current.scale ? current : { ...current, scale: safeScale };
+    });
   }
 
   function handleSourceImageLoad(event: SyntheticEvent<HTMLImageElement>) {
@@ -440,14 +738,11 @@ export function CanvasStage({
   }
 
   function updateCompareFromClientX(clientX: number) {
-    const bounds = viewportContentRef.current?.getBoundingClientRect();
+    pendingCompareClientXRef.current = clientX;
 
-    if (!bounds || bounds.width === 0) {
-      return;
+    if (compareFrameRef.current === null) {
+      compareFrameRef.current = requestAnimationFrame(applyPendingCompare);
     }
-
-    const nextCompare = ((clientX - bounds.left) / bounds.width) * 100;
-    setCompare(Math.round(clamp(nextCompare, 0, 100)));
   }
 
   function handleComparePointerDown(event: PointerEvent<HTMLDivElement>) {
@@ -477,6 +772,7 @@ export function CanvasStage({
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
 
+    flushPendingCompare();
     setIsCompareDragging(false);
   }
 
@@ -499,7 +795,7 @@ export function CanvasStage({
 
     if ((event.shiftKey || event.button === 1) && canvasView.scale !== 1) {
       setSelectedAnnotationId(undefined);
-      setPanState({
+      setPanStateImmediate({
         lastClientX: event.clientX,
         lastClientY: event.clientY
       });
@@ -509,55 +805,50 @@ export function CanvasStage({
 
     const point = getSvgPoint(event);
     setSelectedAnnotationId(id);
-    setDragState({ id, lastX: point.x, lastY: point.y });
+    setDragStateImmediate({ id, lastX: point.x, lastY: point.y });
     svgRef.current?.setPointerCapture(event.pointerId);
   }
 
   function handleAnnotationPointerMove(event: PointerEvent<SVGSVGElement>) {
     const point = getSvgPoint(event);
+    const currentPanState = panStateRef.current;
+    const currentDragState = dragStateRef.current;
+    const currentDraftArea = draftAreaRef.current;
+    const currentDraftFixture = draftFixtureRef.current;
 
-    if (panState) {
+    if (currentPanState) {
       event.preventDefault();
-      const deltaX = event.clientX - panState.lastClientX;
-      const deltaY = event.clientY - panState.lastClientY;
+      const deltaX = event.clientX - currentPanState.lastClientX;
+      const deltaY = event.clientY - currentPanState.lastClientY;
+      currentPanState.lastClientX = event.clientX;
+      currentPanState.lastClientY = event.clientY;
+      schedulePanMove(deltaX, deltaY);
+      return;
+    }
 
-      setCanvasView((current) => ({
-        ...current,
-        x: current.x + deltaX,
-        y: current.y + deltaY
-      }));
-      setPanState({
-        lastClientX: event.clientX,
-        lastClientY: event.clientY
+    if (currentDragState) {
+      event.preventDefault();
+      const deltaX = point.x - currentDragState.lastX;
+      const deltaY = point.y - currentDragState.lastY;
+      currentDragState.lastX = point.x;
+      currentDragState.lastY = point.y;
+      scheduleAnnotationMove(currentDragState.id, deltaX, deltaY);
+      return;
+    }
+
+    if (currentDraftArea) {
+      event.preventDefault();
+      scheduleDraftArea({ ...currentDraftArea, currentX: point.x, currentY: point.y });
+      return;
+    }
+
+    if (currentDraftFixture) {
+      event.preventDefault();
+      scheduleDraftFixture({
+        ...currentDraftFixture,
+        currentX: point.x,
+        currentY: point.y
       });
-      return;
-    }
-
-    if (dragState) {
-      event.preventDefault();
-      const deltaX = point.x - dragState.lastX;
-      const deltaY = point.y - dragState.lastY;
-
-      setAnnotationItems((current) =>
-        current.map((annotation) =>
-          annotation.id === dragState.id
-            ? moveAnnotation(annotation, deltaX, deltaY)
-            : annotation
-        )
-      );
-      setDragState({ ...dragState, lastX: point.x, lastY: point.y });
-      return;
-    }
-
-    if (draftArea) {
-      event.preventDefault();
-      setDraftArea({ ...draftArea, currentX: point.x, currentY: point.y });
-      return;
-    }
-
-    if (draftFixture) {
-      event.preventDefault();
-      setDraftFixture({ ...draftFixture, currentX: point.x, currentY: point.y });
     }
   }
 
@@ -566,24 +857,42 @@ export function CanvasStage({
       svgRef.current.releasePointerCapture(event.pointerId);
     }
 
-    if (draftArea) {
-      const area = normalizeArea(draftArea);
+    flushPendingAnnotationMove();
+    flushPendingPanMove();
+    const releasePoint = getSvgPoint(event);
+    const finalDraftArea = draftAreaRef.current
+      ? {
+          ...draftAreaRef.current,
+          currentX: releasePoint.x,
+          currentY: releasePoint.y
+        }
+      : null;
+    const finalDraftFixture = draftFixtureRef.current
+      ? {
+          ...draftFixtureRef.current,
+          currentX: releasePoint.x,
+          currentY: releasePoint.y
+        }
+      : null;
+
+    if (finalDraftArea) {
+      const area = normalizeArea(finalDraftArea);
 
       if (area.width >= 18 && area.height >= 18) {
         const sameKindCount =
           annotationItems.filter(
             (annotation) =>
-              annotation.type === "area" && annotation.kind === draftArea.kind
+              annotation.type === "area" && annotation.kind === finalDraftArea.kind
           ).length + 1;
-        const id = `${draftArea.kind}-${Date.now()}`;
+        const id = `${finalDraftArea.kind}-${Date.now()}`;
 
         setAnnotationItems((current) => [
           ...current,
           {
             id,
             type: "area",
-            kind: draftArea.kind,
-            label: `${draftArea.label} ${sameKindCount}`,
+            kind: finalDraftArea.kind,
+            label: `${finalDraftArea.label} ${sameKindCount}`,
             x: area.x,
             y: area.y,
             width: area.width,
@@ -594,12 +903,12 @@ export function CanvasStage({
       }
     }
 
-    if (draftFixture) {
+    if (finalDraftFixture) {
       const length = distance(
-        draftFixture.startX,
-        draftFixture.startY,
-        draftFixture.currentX,
-        draftFixture.currentY
+        finalDraftFixture.startX,
+        finalDraftFixture.startY,
+        finalDraftFixture.currentX,
+        finalDraftFixture.currentY
       );
       const fixtureCount =
         annotationItems.filter(
@@ -608,12 +917,20 @@ export function CanvasStage({
               annotation.type === "fixtureDirection" ||
               annotation.type === "fixturePoint" ||
               annotation.type === "fixtureArea") &&
-            annotation.fixture === draftFixture.fixture
+            annotation.fixture === finalDraftFixture.fixture
         ).length + 1;
       const id = `fixture-${Date.now()}`;
 
-      if (draftFixture.mode === "line" && draftFixture.kind && length >= 18) {
-        const lineKind = draftFixture.kind;
+      if (finalDraftFixture.mode === "line" && finalDraftFixture.kind && length >= 18) {
+        const lineKind = finalDraftFixture.kind;
+        const start = clampToAnnotationBounds({
+          x: finalDraftFixture.startX,
+          y: finalDraftFixture.startY
+        });
+        const end = clampToAnnotationBounds({
+          x: finalDraftFixture.currentX,
+          y: finalDraftFixture.currentY
+        });
 
         setAnnotationItems((current) => [
           ...current,
@@ -621,34 +938,39 @@ export function CanvasStage({
             id,
             type: "fixtureLine",
             kind: lineKind,
-            fixture: draftFixture.fixture,
-            label: `${draftFixture.fixture} ${fixtureCount}`,
-            x1: clamp(draftFixture.startX, 24, viewBox.width - 24),
-            y1: clamp(draftFixture.startY, 72, viewBox.height - 34),
-            x2: clamp(draftFixture.currentX, 24, viewBox.width - 24),
-            y2: clamp(draftFixture.currentY, 72, viewBox.height - 34)
+            fixture: finalDraftFixture.fixture,
+            label: `${finalDraftFixture.fixture} ${fixtureCount}`,
+            x1: start.x,
+            y1: start.y,
+            x2: end.x,
+            y2: end.y
           }
         ]);
         setSelectedAnnotationId(id);
       }
 
-      if (draftFixture.mode === "point") {
+      if (finalDraftFixture.mode === "point") {
+        const point = clampToAnnotationBounds({
+          x: finalDraftFixture.startX,
+          y: finalDraftFixture.startY
+        });
+
         setAnnotationItems((current) => [
           ...current,
           {
             id,
             type: "fixturePoint",
-            fixture: draftFixture.fixture,
-            label: `${draftFixture.fixture} ${fixtureCount}`,
-            x: clamp(draftFixture.startX, 24, viewBox.width - 24),
-            y: clamp(draftFixture.startY, 72, viewBox.height - 34)
+            fixture: finalDraftFixture.fixture,
+            label: `${finalDraftFixture.fixture} ${fixtureCount}`,
+            x: point.x,
+            y: point.y
           }
         ]);
         setSelectedAnnotationId(id);
       }
 
-      if (draftFixture.mode === "area") {
-        const area = normalizeFixtureArea(draftFixture);
+      if (finalDraftFixture.mode === "area") {
+        const area = normalizeFixtureArea(finalDraftFixture);
 
         if (area.width >= 18 && area.height >= 18) {
           setAnnotationItems((current) => [
@@ -656,8 +978,8 @@ export function CanvasStage({
             {
               id,
               type: "fixtureArea",
-              fixture: draftFixture.fixture,
-              label: `${draftFixture.fixture} ${fixtureCount}`,
+              fixture: finalDraftFixture.fixture,
+              label: `${finalDraftFixture.fixture} ${fixtureCount}`,
               x: area.x,
               y: area.y,
               width: area.width,
@@ -668,33 +990,41 @@ export function CanvasStage({
         }
       }
 
-      if (draftFixture.mode === "direction") {
+      if (finalDraftFixture.mode === "direction") {
         const targetX =
-          length >= 18 ? draftFixture.currentX : draftFixture.startX + 52;
+          length >= 18 ? finalDraftFixture.currentX : finalDraftFixture.startX + 52;
         const targetY =
-          length >= 18 ? draftFixture.currentY : draftFixture.startY - 22;
+          length >= 18 ? finalDraftFixture.currentY : finalDraftFixture.startY - 22;
+        const start = clampToAnnotationBounds({
+          x: finalDraftFixture.startX,
+          y: finalDraftFixture.startY
+        });
+        const target = clampToAnnotationBounds({
+          x: targetX,
+          y: targetY
+        });
 
         setAnnotationItems((current) => [
           ...current,
           {
             id,
             type: "fixtureDirection",
-            fixture: draftFixture.fixture,
-            label: `${draftFixture.fixture} ${fixtureCount}`,
-            x: clamp(draftFixture.startX, 24, viewBox.width - 24),
-            y: clamp(draftFixture.startY, 72, viewBox.height - 34),
-            targetX: clamp(targetX, 24, viewBox.width - 24),
-            targetY: clamp(targetY, 72, viewBox.height - 34)
+            fixture: finalDraftFixture.fixture,
+            label: `${finalDraftFixture.fixture} ${fixtureCount}`,
+            x: start.x,
+            y: start.y,
+            targetX: target.x,
+            targetY: target.y
           }
         ]);
         setSelectedAnnotationId(id);
       }
     }
 
-    setDraftArea(null);
-    setDraftFixture(null);
-    setDragState(null);
-    setPanState(null);
+    setDraftAreaImmediate(null);
+    setDraftFixtureImmediate(null);
+    setDragStateImmediate(null);
+    setPanStateImmediate(null);
   }
 
   function handleAnnotationCanvasPointerDown(
@@ -709,9 +1039,9 @@ export function CanvasStage({
 
     if ((event.shiftKey || event.button === 1) && canvasView.scale !== 1) {
       setSelectedAnnotationId(undefined);
-      setDraftArea(null);
-      setDraftFixture(null);
-      setPanState({
+      setDraftAreaImmediate(null);
+      setDraftFixtureImmediate(null);
+      setPanStateImmediate({
         lastClientX: event.clientX,
         lastClientY: event.clientY
       });
@@ -722,7 +1052,7 @@ export function CanvasStage({
     if (activeTool === "标注灯位") {
       const lineKind = getFixtureLineKind(activeFixture);
       setSelectedAnnotationId(undefined);
-      setDraftFixture({
+      setDraftFixtureImmediate({
         mode: getFixtureMarkMode(activeFixture),
         kind: lineKind,
         fixture: activeFixture,
@@ -738,7 +1068,7 @@ export function CanvasStage({
     if (isAreaTool(activeTool)) {
       const meta = areaToolMeta[activeTool];
       setSelectedAnnotationId(undefined);
-      setDraftArea({
+      setDraftAreaImmediate({
         ...meta,
         startX: point.x,
         startY: point.y,
@@ -758,17 +1088,17 @@ export function CanvasStage({
       current.filter((annotation) => annotation.id !== selectedAnnotationId)
     );
     setSelectedAnnotationId(undefined);
-    setDraftArea(null);
-    setDraftFixture(null);
-    setDragState(null);
+    setDraftAreaImmediate(null);
+    setDraftFixtureImmediate(null);
+    setDragStateImmediate(null);
   }
 
   function deleteAllAnnotations() {
     setAnnotationItems([]);
     setSelectedAnnotationId(undefined);
-    setDraftArea(null);
-    setDraftFixture(null);
-    setDragState(null);
+    setDraftAreaImmediate(null);
+    setDraftFixtureImmediate(null);
+    setDragStateImmediate(null);
   }
 
   function renderAreaAnnotation(annotation: Extract<CanvasAnnotationItem, { type: "area" }>) {
@@ -788,6 +1118,14 @@ export function CanvasStage({
         key={annotation.id}
         onPointerDown={(event) => handleAnnotationPointerDown(annotation.id, event)}
       >
+        <rect
+          className="annotation-area-hit"
+          x={annotation.x - 12}
+          y={annotation.y - 12}
+          width={annotation.width + 24}
+          height={annotation.height + 24}
+          rx="8"
+        />
         <rect
           className="annotation-area-rect"
           x={annotation.x}
@@ -922,6 +1260,7 @@ export function CanvasStage({
         style={getFixtureStyle(annotation.fixture)}
         onPointerDown={(event) => handleAnnotationPointerDown(annotation.id, event)}
       >
+        <circle className="fixture-point-hit" cx={annotation.x} cy={annotation.y} r="25" />
         <line
           className="fixture-direction-hit"
           x1={annotation.x}
@@ -976,6 +1315,7 @@ export function CanvasStage({
         style={getFixtureStyle(annotation.fixture)}
         onPointerDown={(event) => handleAnnotationPointerDown(annotation.id, event)}
       >
+        <circle className="fixture-point-hit" cx={annotation.x} cy={annotation.y} r="25" />
         <circle className="fixture-point-pulse" cx={annotation.x} cy={annotation.y} r="14" />
         <circle className="fixture-point" cx={annotation.x} cy={annotation.y} r="7" />
         <rect
@@ -1014,6 +1354,14 @@ export function CanvasStage({
         style={getFixtureStyle(annotation.fixture)}
         onPointerDown={(event) => handleAnnotationPointerDown(annotation.id, event)}
       >
+        <rect
+          className="annotation-area-hit"
+          x={annotation.x - 12}
+          y={annotation.y - 12}
+          width={annotation.width + 24}
+          height={annotation.height + 24}
+          rx="8"
+        />
         <rect
           className="annotation-area-rect"
           x={annotation.x}
@@ -1400,7 +1748,7 @@ export function CanvasStage({
                     preserveAspectRatio="none"
                     viewBox={`0 0 ${viewBox.width} ${viewBox.height}`}
                     onPointerDown={handleAnnotationCanvasPointerDown}
-                    onPointerLeave={handleAnnotationPointerUp}
+                    onPointerCancel={handleAnnotationPointerUp}
                     onPointerMove={handleAnnotationPointerMove}
                     onPointerUp={handleAnnotationPointerUp}
                   >

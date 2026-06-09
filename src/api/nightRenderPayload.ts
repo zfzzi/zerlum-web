@@ -34,6 +34,8 @@ export interface ApiFixtureAnnotation {
   type: "point" | "line" | "direction" | "area";
   fixtureType?: string;
   color: string;
+  placementDescription?: string;
+  influenceDescription?: string;
   size: {
     radius?: number;
     width?: number;
@@ -147,6 +149,136 @@ function normalizePoint(point: ApiPoint, width: number, height: number) {
   };
 }
 
+function getChineseOrdinal(index: number) {
+  const ordinals = [
+    "第一处",
+    "第二处",
+    "第三处",
+    "第四处",
+    "第五处",
+    "第六处",
+    "第七处",
+    "第八处",
+    "第九处",
+    "第十处",
+    "第十一处",
+    "第十二处"
+  ];
+
+  return ordinals[index] ?? "另一处";
+}
+
+function getHorizontalPhrase(x: number, width: number) {
+  const ratio = x / width;
+
+  if (ratio <= 0.04) {
+    return "最左边缘";
+  }
+
+  if (ratio >= 0.96) {
+    return "最右边缘";
+  }
+
+  if (ratio < 0.22) {
+    return "左侧";
+  }
+
+  if (ratio < 0.42) {
+    return "中左";
+  }
+
+  if (ratio < 0.58) {
+    return "中央";
+  }
+
+  if (ratio < 0.78) {
+    return "中右";
+  }
+
+  return "右侧";
+}
+
+function getVerticalPhrase(y: number, height: number) {
+  const ratio = y / height;
+
+  if (ratio <= 0.05) {
+    return "顶部边缘";
+  }
+
+  if (ratio >= 0.95) {
+    return "底部边缘";
+  }
+
+  if (ratio < 0.24) {
+    return "上部";
+  }
+
+  if (ratio < 0.44) {
+    return "中上部";
+  }
+
+  if (ratio < 0.62) {
+    return "中部";
+  }
+
+  if (ratio < 0.82) {
+    return "中下部";
+  }
+
+  return "下部";
+}
+
+function describePointPosition(
+  point: ApiPoint,
+  viewBox: CanvasGenerationContext["viewBox"]
+) {
+  return `${getHorizontalPhrase(point.x, viewBox.width)}${getVerticalPhrase(
+    point.y,
+    viewBox.height
+  )}`;
+}
+
+function describeDirection(start: ApiPoint, end: ApiPoint) {
+  const deltaX = end.x - start.x;
+  const deltaY = end.y - start.y;
+  const horizontal =
+    Math.abs(deltaX) < 16 ? "" : deltaX > 0 ? "右" : "左";
+  const vertical =
+    Math.abs(deltaY) < 16 ? "" : deltaY > 0 ? "下" : "上";
+
+  return horizontal || vertical ? `照向${horizontal}${vertical}方` : "围绕点位柔和扩散";
+}
+
+function describeLinePlacement(
+  points: ApiPoint[],
+  viewBox: CanvasGenerationContext["viewBox"]
+) {
+  const [start, end] = points;
+  const lengthRatio =
+    Math.hypot(end.x - start.x, end.y - start.y) /
+    Math.hypot(viewBox.width, viewBox.height);
+  const span = lengthRatio > 0.42 ? "长距离" : lengthRatio > 0.2 ? "中等距离" : "短距离";
+
+  return `${span}线性范围，从${describePointPosition(
+    start,
+    viewBox
+  )}延伸到${describePointPosition(end, viewBox)}`;
+}
+
+function describeAreaPlacement(
+  rect: { x: number; y: number; width: number; height: number },
+  viewBox: CanvasGenerationContext["viewBox"]
+) {
+  const center = {
+    x: rect.x + rect.width / 2,
+    y: rect.y + rect.height / 2
+  };
+  const areaRatio = (rect.width * rect.height) / (viewBox.width * viewBox.height);
+  const size = areaRatio > 0.16 ? "大范围" : areaRatio > 0.05 ? "中等范围" : "小范围";
+
+  return `${size}矩形区域，中心位于${describePointPosition(center, viewBox)}`;
+}
+
 function getLineLength(points: ApiPoint[]) {
   if (points.length < 2) {
     return 0;
@@ -175,9 +307,14 @@ function buildLineAnnotation(
     type: "line",
     fixtureType: annotation.fixture,
     color: fixtureColorMap[annotation.fixture] ?? "#A78BFA",
+    placementDescription: describeLinePlacement(points, viewBox),
+    influenceDescription:
+      annotation.kind === "wash"
+        ? "洗墙灯按整段墙面形成连续、柔和、较宽的洗亮范围"
+        : "线性灯按整段线条形成连续、清晰但不过曝的光带",
     size: {
       length: getLineLength(points),
-      strokeWidth: annotation.kind === "wash" ? 6 : 4
+      strokeWidth: annotation.kind === "wash" ? 10 : 8
     },
     coordinates: {
       points: points.map((point) => ({
@@ -213,10 +350,16 @@ function buildDirectionAnnotation(
     type: "direction",
     fixtureType: annotation.fixture,
     color: fixtureColorMap[annotation.fixture] ?? "#A78BFA",
+    placementDescription: `${describePointPosition(
+      points[0],
+      viewBox
+    )}安装点，${describeDirection(points[0], points[1])}`,
+    influenceDescription:
+      "按点位到照射方向形成柔和的扇形照明，范围比箭头更宽但禁止形成舞台光柱",
     size: {
-      radius: 8,
+      radius: 12,
       length: getLineLength(points),
-      strokeWidth: 3
+      strokeWidth: 5
     },
     coordinates: {
       points: points.map((point) => ({
@@ -248,8 +391,11 @@ function buildPointAnnotation(
     type: "point",
     fixtureType: annotation.fixture,
     color: fixtureColorMap[annotation.fixture] ?? "#A78BFA",
+    placementDescription: `${describePointPosition(point, viewBox)}点位`,
+    influenceDescription:
+      "围绕点位形成小范围柔和发光，不带箭头，不外扩成明显光束",
     size: {
-      radius: 7
+      radius: 12
     },
     coordinates: {
       point: {
@@ -280,6 +426,12 @@ function buildAreaAnnotation(
   const color = isFixtureArea
     ? fixtureColorMap[annotation.fixture] ?? "#A78BFA"
     : editColorMap[annotation.kind] ?? "#A78BFA";
+  const rect = {
+    x: annotation.x,
+    y: annotation.y,
+    width: annotation.width,
+    height: annotation.height
+  };
 
   return {
     id: annotation.id,
@@ -288,16 +440,22 @@ function buildAreaAnnotation(
     type: "area",
     fixtureType,
     color,
+    placementDescription: isFixtureArea
+      ? describeAreaPlacement(rect, viewBox)
+      : undefined,
+    influenceDescription: isFixtureArea
+      ? "按框选面形成均匀发光面，边缘柔和扩散到框外一档，禁止出现彩色框线"
+      : undefined,
     size: {
       width: Math.round(annotation.width),
       height: Math.round(annotation.height)
     },
     coordinates: {
       rect: {
-        x: roundCoordinate(annotation.x),
-        y: roundCoordinate(annotation.y),
-        width: roundCoordinate(annotation.width),
-        height: roundCoordinate(annotation.height)
+        x: roundCoordinate(rect.x),
+        y: roundCoordinate(rect.y),
+        width: roundCoordinate(rect.width),
+        height: roundCoordinate(rect.height)
       }
     },
     normalizedCoordinates: {
@@ -345,10 +503,20 @@ function buildFixtureAnnotationInstruction(annotations: ApiFixtureAnnotation[]) 
   const fixtureTypes = Array.from(
     new Set(fixtureAnnotations.map((annotation) => annotation.fixtureType || "灯具"))
   );
+  const placementSummary = fixtureAnnotations
+    .map((annotation, index) => {
+      const placement = annotation.placementDescription || "按用户标注位置";
+      const influence = annotation.influenceDescription || "按标注范围柔和扩展一档";
+
+      return `${getChineseOrdinal(index)}${annotation.fixtureType || "灯具"}：${placement}，${influence}`;
+    })
+    .join("；");
 
   return [
     `灯具类型包含：${fixtureTypes.join("、")}。`,
+    `灯具位置摘要仅用于定位，禁止作为画面文字出现：${placementSummary}。`,
     "灯具位置已经通过输入主图中的暖白灯光预演效果体现，请严格按预演光的位置、范围和方向生成真实建筑照明。",
+    "每个灯具标注的有效影响范围要比用户画出的点、线或框更宽一些，边缘标注也必须作用到画面最边缘的建筑或景观位置。",
     "不要在画面中绘制任何坐标数字、标注编号、引线、文字标签、箭头、框线或色点。",
     "标注识别色只用于系统区分灯具类型，不代表灯光颜色或色温。",
     "灯光表现要克制、专业、贴合建筑表皮，避免舞台探照灯、粗大光柱和过曝光束；未标注位置不要自行增加强投光。"

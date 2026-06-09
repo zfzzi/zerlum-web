@@ -390,7 +390,11 @@ export function AuthScreen({ onAuthenticated }: AuthScreenProps) {
 
   return (
     <main className="auth-page">
-      <InteractiveNebulaShader className="auth-shader" />
+      <InteractiveNebulaShader
+        className="auth-shader"
+        maxPixelRatio={0.75}
+        targetFps={16}
+      />
 
       <section className="auth-hero" aria-label="Zerlum login introduction">
         <div className="auth-logo-row">

@@ -1,5 +1,6 @@
 import {
   Check,
+  ChevronDown,
   FileImage,
   ImagePlus,
   Layers2,
@@ -131,37 +132,30 @@ export function LeftPanel({
         <div className="style-reference-grid">
           {styleReferences.map((style) => {
             const isSelected = style.id === selectedStyleId;
+            const hasPlaceholderMenu = style.id === "scene-facade" || style.id === "scene-outdoor";
 
             return (
               <button
                 aria-pressed={isSelected}
                 className={
                   isSelected
-                    ? `style-reference-card scene-${style.tone} is-active`
-                    : `style-reference-card scene-${style.tone}`
+                    ? `style-reference-card scene-${style.tone} ${hasPlaceholderMenu ? "has-menu" : ""} is-active`
+                    : `style-reference-card scene-${style.tone} ${hasPlaceholderMenu ? "has-menu" : ""}`
                 }
                 key={style.id}
                 type="button"
                 onClick={() => onStyleSelect(style)}
               >
-                <span className="style-thumb scene-thumb" aria-hidden="true">
-                  {style.imageUrl ? (
-                    <img src={style.imageUrl} alt="" />
-                  ) : (
-                    <>
-                      <span className="scene-sky" />
-                      <span className="scene-mass scene-mass-a" />
-                      <span className="scene-mass scene-mass-b" />
-                      <span className="scene-light scene-light-a" />
-                      <span className="scene-light scene-light-b" />
-                      <span className="scene-ground" />
-                    </>
-                  )}
-                </span>
                 <span className="style-copy">
                   <strong>{style.title}</strong>
                   <small>{style.subtitle}</small>
                 </span>
+                {hasPlaceholderMenu ? (
+                  <span className="scene-reference-menu-placeholder" aria-hidden="true">
+                    <span />
+                    <ChevronDown size={14} aria-hidden="true" />
+                  </span>
+                ) : null}
                 {isSelected ? (
                   <span className="style-selected-indicator">
                     <Check size={12} aria-hidden="true" />

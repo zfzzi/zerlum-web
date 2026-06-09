@@ -973,10 +973,11 @@ p {
   position: relative;
   min-width: 0;
   display: grid;
-  grid-template-columns: 82px minmax(0, 1fr);
-  align-items: center;
-  gap: 10px;
-  padding: 8px;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  gap: 8px;
+  min-height: 64px;
+  padding: 12px;
   border: 1px solid var(--line-soft);
   border-radius: 8px;
   text-align: left;
@@ -987,6 +988,11 @@ p {
     background-color 160ms ease,
     transform 160ms ease;
   cursor: pointer;
+}
+
+.style-reference-card.has-menu {
+  min-height: 92px;
+  padding-bottom: 10px;
 }
 
 .style-reference-card:hover,
@@ -1218,6 +1224,7 @@ p {
   display: grid;
   gap: 3px;
   min-width: 0;
+  padding-right: 56px;
 }
 
 .style-copy strong {
@@ -1247,6 +1254,36 @@ p {
   box-shadow: 0 0 18px rgb(126 87 255 / 0.22);
   font-size: 0.64rem;
   font-weight: 760;
+}
+
+.scene-reference-menu-placeholder {
+  width: 100%;
+  min-height: 28px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 0 9px;
+  border: 1px solid rgb(150 120 255 / 0.2);
+  border-radius: 9px;
+  color: rgb(196 186 230 / 0.72);
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 0.035), rgb(255 255 255 / 0.01)),
+    rgb(9 5 28 / 0.52);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.05);
+}
+
+.scene-reference-menu-placeholder > span {
+  min-height: 1px;
+}
+
+.style-reference-card:hover .scene-reference-menu-placeholder,
+.style-reference-card.is-active .scene-reference-menu-placeholder {
+  border-color: rgb(170 145 255 / 0.38);
+  color: rgb(232 227 255);
+  background:
+    linear-gradient(180deg, rgb(126 87 255 / 0.12), rgb(126 87 255 / 0.04)),
+    rgb(14 7 38 / 0.68);
 }
 
 .reference-upload-grid {
@@ -2138,6 +2175,13 @@ p {
   pointer-events: all;
 }
 
+.annotation-area-hit,
+.fixture-point-hit {
+  fill: transparent;
+  stroke: transparent;
+  pointer-events: all;
+}
+
 .area-repaint .annotation-area-rect {
   fill: oklch(0.79 0.13 74 / 0.18);
   stroke: var(--warm);
@@ -2175,7 +2219,7 @@ p {
 .fixture-line-hit,
 .fixture-direction-hit {
   stroke: transparent;
-  stroke-width: 22;
+  stroke-width: 36;
   pointer-events: stroke;
 }
 
@@ -2762,6 +2806,14 @@ input[type="range"] {
   isolation: isolate;
 }
 
+.welcome-screen {
+  animation: welcomePageIn 720ms cubic-bezier(0.2, 0.86, 0.2, 1) both;
+}
+
+.auth-page {
+  animation: authPageIn 620ms cubic-bezier(0.2, 0.86, 0.2, 1) both;
+}
+
 .welcome-frame {
   position: relative;
   z-index: 1;
@@ -2788,6 +2840,7 @@ input[type="range"] {
   z-index: 2;
   display: inline-flex;
   align-items: center;
+  animation: brandFadeIn 560ms ease both;
 }
 
 .welcome-logo {
@@ -2823,6 +2876,7 @@ input[type="range"] {
   display: grid;
   justify-items: center;
   gap: 22px;
+  animation: heroTextRise 720ms 80ms cubic-bezier(0.2, 0.86, 0.2, 1) both;
 }
 
 .welcome-copy h1 {
@@ -2856,41 +2910,185 @@ input[type="range"] {
 }
 
 .welcome-login-button {
-  min-width: 168px;
-  min-height: 60px;
+  --welcome-button-highlight: rgb(150 215 255);
+  --welcome-button-highlight-50: rgb(150 215 255 / 0.5);
+  --welcome-button-highlight-30: rgb(150 215 255 / 0.3);
+  --welcome-button-highlight-20: rgb(150 215 255 / 0.2);
+  --welcome-button-highlight-80: rgb(150 215 255 / 0.8);
+  position: relative;
+  min-width: 208px;
+  min-height: 68px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 10px;
-  padding: 0 30px;
-  border: 1px solid rgb(255 255 255 / 0.64);
+  padding: 0 36px;
+  border: 1px solid rgb(255 255 255 / 0.34);
   border-radius: 999px;
   color: white;
+  isolation: isolate;
   background:
-    linear-gradient(180deg, rgb(255 255 255 / 0.42), rgb(255 255 255 / 0.18) 44%, rgb(255 255 255 / 0.05)),
-    rgb(255 255 255 / 0.2);
+    linear-gradient(180deg, rgb(255 255 255 / 0.16), rgb(255 255 255 / 0.07) 42%, rgb(255 255 255 / 0.018)),
+    rgb(16 16 17 / 0.78);
   box-shadow:
-    0 22px 80px rgb(255 255 255 / 0.18),
-    0 12px 38px rgb(0 0 0 / 0.24),
-    inset 0 1px 0 rgb(255 255 255 / 0.9),
-    inset 0 -20px 30px rgb(0 0 0 / 0.32);
+    inset 0 1px 1px rgb(255 255 255 / 0.2),
+    inset 0 2px 2px rgb(255 255 255 / 0.15),
+    inset 0 4px 4px rgb(255 255 255 / 0.1),
+    inset 0 8px 8px rgb(255 255 255 / 0.05),
+    inset 0 16px 16px rgb(255 255 255 / 0.05),
+    0 -1px 1px rgb(0 0 0 / 0.02),
+    0 -2px 2px rgb(0 0 0 / 0.03),
+    0 -4px 4px rgb(0 0 0 / 0.05),
+    0 -8px 8px rgb(0 0 0 / 0.06),
+    0 -16px 16px rgb(0 0 0 / 0.08),
+    0 28px 86px rgb(255 255 255 / 0.07);
   backdrop-filter: blur(32px) saturate(190%);
   font-size: 1rem;
   font-weight: 740;
   transition:
     transform 180ms ease,
     border-color 180ms ease,
+    background-color 180ms ease,
     box-shadow 180ms ease;
+}
+
+.welcome-login-button::before {
+  content: "";
+  position: absolute;
+  inset: -4px;
+  z-index: -1;
+  border-radius: inherit;
+  pointer-events: none;
+  background-image: linear-gradient(0deg, rgb(0 0 0 / 0.24), rgb(0 0 0 / 0.62));
+  box-shadow:
+    0 -8px 8px -6px rgb(255 255 255 / 0) inset,
+    0 -16px 16px -8px rgb(0 0 0 / 0) inset,
+    1px 1px 1px rgb(255 255 255 / 0.14),
+    2px 2px 2px rgb(255 255 255 / 0.07),
+    -1px -1px 1px rgb(0 0 0 / 0.14),
+    -2px -2px 2px rgb(0 0 0 / 0.07);
+  transition:
+    box-shadow 400ms ease,
+    opacity 400ms ease;
+}
+
+.welcome-login-button::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: 0;
+  background-image: linear-gradient(
+    0deg,
+    white,
+    var(--welcome-button-highlight),
+    var(--welcome-button-highlight-50) 8%,
+    transparent 48%
+  );
+  mask-image: linear-gradient(0deg, white, transparent);
+  transition:
+    opacity 400ms ease,
+    filter 400ms ease;
+}
+
+.welcome-login-text {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 4.8em;
+  letter-spacing: 0;
+}
+
+.welcome-login-letter {
+  display: inline-block;
+  color: white;
+  text-shadow:
+    0 0 1px rgb(255 255 255 / 0.78),
+    0 0 8px rgb(255 255 255 / 0.08);
+  animation: welcomeButtonLetter 2.2s ease-in-out infinite;
+  transition:
+    color 400ms ease,
+    text-shadow 400ms ease,
+    transform 400ms ease;
 }
 
 .welcome-login-button:hover,
 .welcome-login-button:focus-visible {
   border-color: white;
   transform: translateY(-2px);
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 0.2), rgb(255 255 255 / 0.08) 42%, rgb(255 255 255 / 0.024)),
+    rgb(18 19 20 / 0.82);
   box-shadow:
-    0 22px 80px rgb(255 255 255 / 0.32),
-    0 0 38px rgb(255 255 255 / 0.22),
-    inset 0 1px 0 rgb(255 255 255 / 0.9);
+    inset 0 1px 1px rgb(255 255 255 / 0.25),
+    inset 0 2px 2px rgb(255 255 255 / 0.18),
+    inset 0 4px 4px rgb(255 255 255 / 0.12),
+    inset 0 8px 10px rgb(255 255 255 / 0.06),
+    inset 0 16px 16px rgb(255 255 255 / 0.05),
+    0 28px 88px rgb(255 255 255 / 0.1),
+    0 0 42px rgb(150 215 255 / 0.12);
+}
+
+.welcome-login-button:hover::before,
+.welcome-login-button:focus-visible::before {
+  box-shadow:
+    0 -8px 8px -6px rgb(255 255 255 / 0.55) inset,
+    0 -16px 16px -8px var(--welcome-button-highlight-30) inset,
+    1px 1px 1px rgb(255 255 255 / 0.18),
+    2px 2px 2px rgb(255 255 255 / 0.08),
+    -1px -1px 1px rgb(0 0 0 / 0.14),
+    -2px -2px 2px rgb(0 0 0 / 0.08);
+}
+
+.welcome-login-button:hover::after,
+.welcome-login-button:focus-visible::after {
+  opacity: 0.72;
+}
+
+.welcome-login-button:hover .welcome-login-letter,
+.welcome-login-button:focus-visible .welcome-login-letter {
+  color: white;
+  text-shadow:
+    0 0 3px rgb(255 255 255 / 0.9),
+    0 0 12px var(--welcome-button-highlight-50);
+}
+
+.welcome-login-button:active {
+  border-color: rgb(190 230 255 / 0.76);
+  transform: translateY(0) scale(0.985);
+  background-color: rgb(18 42 62 / 0.45);
+}
+
+.welcome-login-button:active::before {
+  box-shadow:
+    0 -8px 12px -6px rgb(255 255 255 / 0.62) inset,
+    0 -16px 16px -8px var(--welcome-button-highlight-80) inset,
+    1px 1px 1px rgb(255 255 255 / 0.25),
+    2px 2px 2px rgb(255 255 255 / 0.12),
+    -1px -1px 1px rgb(0 0 0 / 0.14),
+    -2px -2px 2px rgb(0 0 0 / 0.07);
+}
+
+.welcome-login-button:active::after {
+  opacity: 0.92;
+  filter: brightness(1.4);
+}
+
+.welcome-login-button:active .welcome-login-letter {
+  animation: none;
+  text-shadow: 0 0 2px rgb(230 248 255 / 0.9);
+}
+
+@keyframes welcomeButtonLetter {
+  50% {
+    text-shadow:
+      0 0 3px rgb(255 255 255 / 0.86),
+      0 0 11px rgb(255 255 255 / 0.16);
+    transform: translateY(-0.5px);
+  }
 }
 
 .auth-page {
@@ -2921,6 +3119,7 @@ input[type="range"] {
   z-index: 2;
   display: inline-flex;
   align-items: center;
+  animation: brandFadeIn 560ms ease both;
 }
 
 .auth-page-logo {
@@ -2986,6 +3185,7 @@ input[type="range"] {
     inset 0 1px 0 rgb(255 255 255 / 0.42),
     inset 0 -30px 54px rgb(0 0 0 / 0.18);
   backdrop-filter: blur(34px) saturate(190%);
+  animation: authPanelIn 680ms 120ms cubic-bezier(0.2, 0.86, 0.2, 1) both;
 }
 
 .auth-panel::before {
@@ -3287,6 +3487,104 @@ input[type="range"] {
   font-weight: 760;
 }
 
+@keyframes welcomePageIn {
+  from {
+    opacity: 0;
+    transform: scale(1.015);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes authPageIn {
+  from {
+    opacity: 0;
+    transform: translateY(18px) scale(0.992);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes brandFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes heroTextRise {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes authPanelIn {
+  from {
+    opacity: 0;
+    transform: translateY(22px) scale(0.985);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes workspaceIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes workspacePanelIn {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes controlHighlight {
+  0% {
+    box-shadow: 0 0 0 rgb(255 255 255 / 0);
+  }
+
+  45% {
+    box-shadow: 0 0 0 4px rgb(255 255 255 / 0.12);
+  }
+
+  100% {
+    box-shadow: 0 0 0 rgb(255 255 255 / 0);
+  }
+}
+
 .zerlum-workspace {
   position: relative;
   background:
@@ -3294,6 +3592,7 @@ input[type="range"] {
     radial-gradient(ellipse at 76% 2%, rgb(64 31 142 / 0.28), transparent 28rem),
     linear-gradient(180deg, #090416 0%, #04020b 58%, #050209 100%);
   isolation: isolate;
+  animation: workspaceIn 520ms cubic-bezier(0.2, 0.86, 0.2, 1) both;
 }
 
 .workspace-shader {
@@ -3377,6 +3676,19 @@ input[type="range"] {
     inset 0 1px 0 rgb(255 255 255 / 0.08);
   backdrop-filter: none;
   contain: layout paint style;
+  animation: workspacePanelIn 520ms cubic-bezier(0.2, 0.86, 0.2, 1) both;
+}
+
+.zerlum-workspace .left-panel {
+  animation-delay: 60ms;
+}
+
+.zerlum-workspace .canvas-shell {
+  animation-delay: 110ms;
+}
+
+.zerlum-workspace .inspector {
+  animation-delay: 160ms;
 }
 
 .zerlum-workspace .canvas-board,
@@ -3517,9 +3829,11 @@ input[type="range"] {
 .zerlum-workspace .upload-card:hover .upload-action,
 .zerlum-workspace .status-ready .upload-action {
   color: rgb(212 203 255);
-  background: transparent !important;
-  border-color: transparent !important;
-  box-shadow: none !important;
+  background: rgb(126 87 255 / 0.11) !important;
+  border-color: rgb(168 144 255 / 0.24) !important;
+  box-shadow:
+    0 0 0 1px rgb(170 145 255 / 0.08),
+    inset 0 1px 0 rgb(255 255 255 / 0.08) !important;
   text-shadow: 0 0 16px rgb(126 87 255 / 0.5);
 }
 
@@ -3527,9 +3841,13 @@ input[type="range"] {
 .zerlum-workspace .style-reference-card.is-active,
 .zerlum-workspace .history-thumb:hover {
   color: white;
-  background: transparent !important;
-  border-color: transparent !important;
-  box-shadow: none !important;
+  background:
+    radial-gradient(circle at 18% 20%, rgb(126 87 255 / 0.12), transparent 7rem),
+    rgb(126 87 255 / 0.055) !important;
+  border-color: rgb(168 144 255 / 0.24) !important;
+  box-shadow:
+    0 0 0 1px rgb(170 145 255 / 0.08),
+    inset 0 1px 0 rgb(255 255 255 / 0.08) !important;
   text-shadow: 0 0 16px rgb(126 87 255 / 0.42);
 }
 
@@ -3543,6 +3861,34 @@ input[type="range"] {
     0 14px 34px rgb(65 38 145 / 0.24),
     inset 0 1px 0 rgb(255 255 255 / 0.12) !important;
   text-shadow: none !important;
+}
+
+.zerlum-workspace button:not(:disabled),
+.zerlum-workspace .upload-card,
+.zerlum-workspace .reference-upload-box,
+.zerlum-workspace .style-reference-card,
+.zerlum-workspace .history-thumb {
+  transition:
+    border-color 170ms ease,
+    background-color 170ms ease,
+    box-shadow 170ms ease,
+    color 170ms ease,
+    transform 170ms ease;
+}
+
+.zerlum-workspace button:not(:disabled):active,
+.zerlum-workspace .upload-card:active,
+.zerlum-workspace .reference-upload-box:active,
+.zerlum-workspace .style-reference-card:active,
+.zerlum-workspace .history-thumb:active {
+  transform: translateY(1px) scale(0.985);
+}
+
+.zerlum-workspace .export-button.is-active,
+.zerlum-workspace .tool-button.is-active,
+.zerlum-workspace .fixture-pill.is-active,
+.zerlum-workspace .style-reference-card.is-active {
+  animation: controlHighlight 420ms ease both;
 }
 
 .zerlum-workspace .style-reference-card.is-active .style-thumb {
@@ -3617,6 +3963,301 @@ input[type="range"] {
   border-radius: 999px;
   color: rgb(238 233 255);
   background: rgb(7 4 22 / 0.62);
+}
+
+.zerlum-workspace {
+  --workspace-black: #020202;
+  --workspace-ink: #070707;
+  --workspace-panel: #0b0b0c;
+  --workspace-panel-soft: #111113;
+  --workspace-line: rgb(255 255 255 / 0.12);
+  --workspace-line-strong: rgb(255 255 255 / 0.24);
+  --workspace-hover: rgb(255 255 255 / 0.075);
+  background:
+    radial-gradient(ellipse at 22% -12%, rgb(255 255 255 / 0.055), transparent 34rem),
+    radial-gradient(ellipse at 78% 0%, rgb(255 255 255 / 0.035), transparent 30rem),
+    linear-gradient(180deg, #050505 0%, #010101 58%, #000 100%) !important;
+}
+
+.zerlum-workspace .workspace-shader {
+  opacity: 0.035;
+  filter: grayscale(1) saturate(0) brightness(0.38);
+}
+
+.zerlum-workspace .topbar {
+  border-color: var(--workspace-line) !important;
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 0.07), rgb(255 255 255 / 0.018)),
+    rgb(5 5 5 / 0.86) !important;
+  box-shadow:
+    0 22px 70px rgb(0 0 0 / 0.42),
+    inset 0 1px 0 rgb(255 255 255 / 0.08) !important;
+}
+
+.zerlum-workspace .topbar::after {
+  background: linear-gradient(90deg, transparent, rgb(255 255 255 / 0.38), rgb(255 255 255 / 0.14), transparent) !important;
+  opacity: 0.68;
+}
+
+.zerlum-workspace .brand-mark {
+  border-color: rgb(255 255 255 / 0.18) !important;
+  background:
+    radial-gradient(circle at 35% 22%, rgb(255 255 255 / 0.22), transparent 36%),
+    linear-gradient(135deg, #2d2d31, #080808) !important;
+  box-shadow:
+    0 0 26px rgb(255 255 255 / 0.08),
+    inset 0 1px 0 rgb(255 255 255 / 0.18) !important;
+}
+
+.zerlum-workspace .panel,
+.zerlum-workspace .canvas-shell {
+  border-color: var(--workspace-line) !important;
+  background:
+    radial-gradient(circle at 16% 0%, rgb(255 255 255 / 0.035), transparent 15rem),
+    linear-gradient(180deg, rgb(18 18 20 / 0.92), rgb(3 3 4 / 0.98)),
+    #050505 !important;
+  box-shadow:
+    0 14px 42px rgb(0 0 0 / 0.34),
+    inset 0 1px 0 rgb(255 255 255 / 0.06) !important;
+}
+
+.zerlum-workspace .canvas-board,
+.zerlum-workspace .image-frame,
+.zerlum-workspace .setup-section,
+.zerlum-workspace .fixture-section,
+.zerlum-workspace .prompt-section,
+.zerlum-workspace .output-section,
+.zerlum-workspace .export-section,
+.zerlum-workspace .negative-section,
+.zerlum-workspace .reference-upload-box,
+.zerlum-workspace .upload-card,
+.zerlum-workspace .style-reference-card,
+.zerlum-workspace .history-thumb {
+  border-color: rgb(255 255 255 / 0.1) !important;
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 0.045), rgb(255 255 255 / 0.012)),
+    rgb(8 8 9 / 0.58) !important;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.045) !important;
+}
+
+.zerlum-workspace .project-status,
+.zerlum-workspace .account-trigger,
+.zerlum-workspace .ghost-button,
+.zerlum-workspace .icon-button,
+.zerlum-workspace .export-button,
+.zerlum-workspace .tool-button,
+.zerlum-workspace .view-fit-button,
+.zerlum-workspace .fixture-pill,
+.zerlum-workspace .fixture-select-control select,
+.zerlum-workspace .upload-action,
+.zerlum-workspace .canvas-toolbar,
+.zerlum-workspace .canvas-zoom-controls,
+.zerlum-workspace .canvas-time-control,
+.zerlum-workspace .canvas-time-control select,
+.zerlum-workspace .select-field select,
+.zerlum-workspace .prompt-box,
+.zerlum-workspace .selected-style-summary,
+.zerlum-workspace .api-status,
+.zerlum-workspace .compare-control,
+.zerlum-workspace .empty-canvas-state,
+.zerlum-workspace .empty-canvas-steps span,
+.zerlum-workspace .result-pending {
+  border-color: rgb(255 255 255 / 0.1) !important;
+  background: rgb(6 6 7 / 0.58) !important;
+  box-shadow: none !important;
+}
+
+.zerlum-workspace .primary-button,
+.zerlum-workspace .export-button.is-active,
+.zerlum-workspace .account-primary-action {
+  border-color: rgb(255 255 255 / 0.28) !important;
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 0.16), rgb(255 255 255 / 0.055)),
+    #111 !important;
+  box-shadow:
+    0 0 22px rgb(255 255 255 / 0.055),
+    inset 0 1px 0 rgb(255 255 255 / 0.18) !important;
+}
+
+.zerlum-workspace .tool-button:hover,
+.zerlum-workspace .tool-button.is-active,
+.zerlum-workspace .fixture-pill:hover,
+.zerlum-workspace .fixture-pill.is-active,
+.zerlum-workspace .fixture-select-control:hover select,
+.zerlum-workspace .export-button:hover,
+.zerlum-workspace .export-button.is-active,
+.zerlum-workspace .view-fit-button:hover:not(:disabled),
+.zerlum-workspace .ghost-button:hover,
+.zerlum-workspace .ghost-button:focus-visible,
+.zerlum-workspace .account-trigger:hover,
+.zerlum-workspace .account-trigger[aria-expanded="true"],
+.zerlum-workspace .upload-card:hover .upload-action,
+.zerlum-workspace .status-ready .upload-action {
+  color: rgb(245 245 245) !important;
+  background: rgb(255 255 255 / 0.08) !important;
+  border-color: rgb(255 255 255 / 0.18) !important;
+  box-shadow:
+    0 0 0 1px rgb(255 255 255 / 0.055),
+    inset 0 1px 0 rgb(255 255 255 / 0.08) !important;
+  text-shadow: none !important;
+}
+
+.zerlum-workspace .style-reference-card:hover,
+.zerlum-workspace .style-reference-card.is-active,
+.zerlum-workspace .history-thumb:hover {
+  color: white !important;
+  background:
+    radial-gradient(circle at 18% 20%, rgb(255 255 255 / 0.055), transparent 7rem),
+    rgb(255 255 255 / 0.045) !important;
+  border-color: rgb(255 255 255 / 0.16) !important;
+  box-shadow:
+    0 0 0 1px rgb(255 255 255 / 0.055),
+    inset 0 1px 0 rgb(255 255 255 / 0.08) !important;
+  text-shadow: none !important;
+}
+
+.zerlum-workspace .style-reference-card.is-active {
+  border-color: rgb(255 255 255 / 0.34) !important;
+  background:
+    radial-gradient(circle at 16% 14%, rgb(255 255 255 / 0.1), transparent 7rem),
+    linear-gradient(180deg, rgb(255 255 255 / 0.105), rgb(8 8 9 / 0.72)) !important;
+  box-shadow:
+    0 0 0 1px rgb(255 255 255 / 0.08),
+    0 14px 34px rgb(0 0 0 / 0.24),
+    inset 0 1px 0 rgb(255 255 255 / 0.12) !important;
+}
+
+.zerlum-workspace .style-selected-indicator {
+  border-color: rgb(255 255 255 / 0.28) !important;
+  color: rgb(245 245 245) !important;
+  background: rgb(255 255 255 / 0.08) !important;
+  box-shadow: none !important;
+}
+
+.zerlum-workspace .scene-reference-menu-placeholder,
+.zerlum-workspace .style-reference-card:hover .scene-reference-menu-placeholder,
+.zerlum-workspace .style-reference-card.is-active .scene-reference-menu-placeholder {
+  border-color: rgb(255 255 255 / 0.12) !important;
+  color: rgb(210 210 214 / 0.78) !important;
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 0.035), rgb(255 255 255 / 0.01)),
+    rgb(8 8 9 / 0.72) !important;
+}
+
+.zerlum-workspace .fixture-select-control select,
+.zerlum-workspace .fixture-select-control select option,
+.zerlum-workspace .fixture-select-control select optgroup,
+.zerlum-workspace .canvas-time-control select,
+.zerlum-workspace .select-field select {
+  color: rgb(242 242 244) !important;
+  background: rgb(8 8 10 / 0.98) !important;
+}
+
+.zerlum-workspace .upload-card,
+.zerlum-workspace .upload-card:hover,
+.zerlum-workspace .upload-card.is-drop-target {
+  border-color: rgb(255 255 255 / 0.14) !important;
+  background:
+    radial-gradient(circle at 14% 16%, rgb(255 255 255 / 0.045), transparent 8rem),
+    linear-gradient(180deg, rgb(255 255 255 / 0.055), rgb(255 255 255 / 0.014)),
+    rgb(8 8 9 / 0.62) !important;
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.055),
+    0 12px 34px rgb(0 0 0 / 0.22) !important;
+}
+
+.zerlum-workspace .upload-preview {
+  border-color: rgb(255 255 255 / 0.14) !important;
+  background:
+    radial-gradient(circle at 50% 45%, rgb(255 255 255 / 0.055), transparent 56%),
+    rgb(2 2 3 / 0.92) !important;
+}
+
+.zerlum-workspace .upload-remove-button,
+.zerlum-workspace .reference-remove-button {
+  border-color: rgb(255 255 255 / 0.16) !important;
+  color: rgb(240 240 242) !important;
+  background: rgb(8 8 9 / 0.72) !important;
+}
+
+.zerlum-workspace button:focus-visible,
+.zerlum-workspace select:focus-visible,
+.zerlum-workspace textarea:focus-visible,
+.zerlum-workspace input:focus-visible {
+  outline-color: rgb(255 255 255 / 0.48) !important;
+  box-shadow:
+    0 0 0 1px rgb(255 255 255 / 0.2),
+    inset 0 1px 0 rgb(255 255 255 / 0.08) !important;
+}
+
+.zerlum-workspace .upload-preview,
+.zerlum-workspace .upload-preview:hover,
+.zerlum-workspace .reference-upload-box,
+.zerlum-workspace .reference-upload-box:hover,
+.zerlum-workspace .empty-canvas-mark {
+  color: rgb(218 218 222) !important;
+  border-color: rgb(255 255 255 / 0.14) !important;
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 0.055), rgb(255 255 255 / 0.014)),
+    rgb(5 5 6 / 0.92) !important;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.055) !important;
+  filter: saturate(0) !important;
+}
+
+.zerlum-workspace .upload-preview svg,
+.zerlum-workspace .reference-upload-box svg,
+.zerlum-workspace .empty-canvas-mark svg {
+  color: currentColor !important;
+  stroke: currentColor !important;
+}
+
+.zerlum-workspace .empty-canvas-state,
+.zerlum-workspace .empty-canvas-state:hover,
+.zerlum-workspace .empty-canvas-state:focus-visible {
+  color: rgb(232 232 235) !important;
+  border-color: rgb(255 255 255 / 0.12) !important;
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 0.04), rgb(255 255 255 / 0.012)),
+    rgb(6 6 7 / 0.82) !important;
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.05),
+    0 14px 34px rgb(0 0 0 / 0.2) !important;
+}
+
+.zerlum-workspace .history-empty {
+  color: rgb(150 150 156) !important;
+  border-color: rgb(255 255 255 / 0.12) !important;
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 0.035), rgb(255 255 255 / 0.01)),
+    rgb(6 6 7 / 0.78) !important;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.045) !important;
+}
+
+.zerlum-workspace .style-reference-card .style-copy strong,
+.zerlum-workspace .style-reference-card.is-active .style-copy strong {
+  color: rgb(238 238 240) !important;
+}
+
+.zerlum-workspace .style-reference-card .style-copy small,
+.zerlum-workspace .style-reference-card.is-active .style-copy small {
+  color: rgb(150 150 156) !important;
+}
+
+.zerlum-workspace .style-reference-card.is-active {
+  color: rgb(238 238 240) !important;
+  border-color: rgb(255 255 255 / 0.18) !important;
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 0.07), rgb(255 255 255 / 0.016)),
+    rgb(8 8 9 / 0.72) !important;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.08) !important;
+}
+
+.zerlum-workspace .fixture-color-dot {
+  display: none !important;
+}
+
+.zerlum-workspace .fixture-select-control select {
+  padding-left: 12px !important;
 }
 
 @media (max-width: 1060px) {

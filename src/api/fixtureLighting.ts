@@ -115,6 +115,30 @@ function drawRadialGlow(
   context.fillRect(x - radius, y - radius, radius * 2, radius * 2);
 }
 
+function expandRectWithinCanvas(
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  canvasWidth: number,
+  canvasHeight: number,
+  ratio: number
+) {
+  const padX = Math.max(8, width * ratio);
+  const padY = Math.max(8, height * ratio);
+  const nextX = Math.max(0, x - padX);
+  const nextY = Math.max(0, y - padY);
+  const nextRight = Math.min(canvasWidth, x + width + padX);
+  const nextBottom = Math.min(canvasHeight, y + height + padY);
+
+  return {
+    x: nextX,
+    y: nextY,
+    width: nextRight - nextX,
+    height: nextBottom - nextY
+  };
+}
+
 function drawSoftLine(
   context: CanvasRenderingContext2D,
   start: { x: number; y: number },
@@ -129,9 +153,9 @@ function drawSoftLine(
   context.lineJoin = "round";
 
   for (const pass of [
-    { alpha: 0.035, width: width * 5.2 },
-    { alpha: 0.075, width: width * 2.9 },
-    { alpha: 0.18, width: width * 1.05 }
+    { alpha: 0.026, width: width * 7.2 },
+    { alpha: 0.064, width: width * 3.8 },
+    { alpha: 0.15, width: width * 1.22 }
   ]) {
     context.strokeStyle = rgba(colorTemperature, pass.alpha * strength);
     context.lineWidth = pass.width;
@@ -157,11 +181,11 @@ function drawBeam(
   const nx = -dy / length;
   const ny = dx / length;
   const startWidth = Math.max(5, length * 0.012);
-  const endWidth = Math.max(18, length * 0.07);
+  const endWidth = Math.max(18, length * 0.052);
   const gradient = context.createLinearGradient(origin.x, origin.y, target.x, target.y);
 
-  gradient.addColorStop(0, rgba(colorTemperature, 0.18 * strength));
-  gradient.addColorStop(0.36, rgba(colorTemperature, 0.08 * strength));
+  gradient.addColorStop(0, rgba(colorTemperature, 0.14 * strength));
+  gradient.addColorStop(0.38, rgba(colorTemperature, 0.06 * strength));
   gradient.addColorStop(1, "rgba(255, 255, 255, 0)");
 
   context.save();
@@ -179,9 +203,9 @@ function drawBeam(
     context,
     origin.x,
     origin.y,
-    Math.max(18, length * 0.042),
+    Math.max(20, length * 0.05),
     colorTemperature,
-    strength * 0.66
+    strength * 0.58
   );
   context.restore();
 }
@@ -226,8 +250,8 @@ function drawFixtureLighting(
     const end = scalePoint({ x: annotation.x2, y: annotation.y2 }, viewBox, width, height);
     const lineWidth =
       annotation.kind === "wash"
-        ? Math.max(5, Math.min(width, height) * 0.009)
-        : Math.max(3, Math.min(width, height) * 0.0055);
+        ? Math.max(7, Math.min(width, height) * 0.012)
+        : Math.max(4, Math.min(width, height) * 0.0075);
     drawSoftLine(context, start, end, colorTemperature, strength, lineWidth);
 
     if (annotation.kind === "wash") {
@@ -235,9 +259,9 @@ function drawFixtureLighting(
         context,
         (start.x + end.x) / 2,
         (start.y + end.y) / 2,
-        Math.max(38, Math.hypot(end.x - start.x, end.y - start.y) * 0.14),
+        Math.max(48, Math.hypot(end.x - start.x, end.y - start.y) * 0.2),
         colorTemperature,
-        strength * 0.32
+        strength * 0.26
       );
     }
   }
@@ -259,22 +283,31 @@ function drawFixtureLighting(
       context,
       point.x,
       point.y,
-      Math.max(14, Math.min(width, height) * 0.026),
+      Math.max(22, Math.min(width, height) * 0.04),
       colorTemperature,
-      strength
+      strength * 0.86
     );
   }
 
   if (annotation.type === "fixtureArea") {
     const origin = scalePoint({ x: annotation.x, y: annotation.y }, viewBox, width, height);
-    drawAreaGlow(
-      context,
+    const expandedRect = expandRectWithinCanvas(
       origin.x,
       origin.y,
       (annotation.width / viewBox.width) * width,
       (annotation.height / viewBox.height) * height,
+      width,
+      height,
+      0.12
+    );
+    drawAreaGlow(
+      context,
+      expandedRect.x,
+      expandedRect.y,
+      expandedRect.width,
+      expandedRect.height,
       colorTemperature,
-      strength
+      strength * 0.9
     );
   }
 }

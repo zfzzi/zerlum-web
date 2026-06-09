@@ -20,8 +20,8 @@ export function InteractiveNebulaShader({
   hasActiveReminders = false,
   hasUpcomingReminders = false,
   disableCenterDimming = false,
-  maxPixelRatio = 1.25,
-  targetFps = 28,
+  maxPixelRatio = 0.9,
+  targetFps = 18,
   className = ""
 }: InteractiveNebulaShaderProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -59,7 +59,7 @@ export function InteractiveNebulaShader({
 
     const scene = new THREE.Scene();
     const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
-    const clock = new THREE.Clock();
+    const startTime = performance.now();
 
     const vertexShader = `
       varying vec2 vUv;
@@ -170,15 +170,21 @@ export function InteractiveNebulaShader({
     resize();
 
     function renderFrame(staticTime?: number) {
-      uniforms.iTime.value = staticTime ?? clock.getElapsedTime();
+      uniforms.iTime.value = staticTime ?? (performance.now() - startTime) / 1000;
       renderer.render(scene, camera);
     }
+
+    let staticFrameId = 0;
 
     if (shouldAnimate) {
       const frameInterval = 1000 / Math.max(12, targetFps);
       let lastFrame = 0;
 
       renderer.setAnimationLoop((timestamp) => {
+        if (document.hidden) {
+          return;
+        }
+
         if (timestamp - lastFrame < frameInterval) {
           return;
         }
@@ -187,12 +193,15 @@ export function InteractiveNebulaShader({
         renderFrame();
       });
     } else {
-      requestAnimationFrame(() => renderFrame(6.2));
+      staticFrameId = requestAnimationFrame(() => renderFrame(6.2));
     }
 
     return () => {
       window.removeEventListener("resize", resize);
       renderer.setAnimationLoop(null);
+      if (staticFrameId) {
+        cancelAnimationFrame(staticFrameId);
+      }
       host.removeChild(renderer.domElement);
       material.dispose();
       mesh.geometry.dispose();
